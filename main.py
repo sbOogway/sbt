@@ -1,6 +1,8 @@
 import argparse
 import glob
+import tomllib
 from decimal import Decimal
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -33,9 +35,14 @@ class BitcoinIntradayMomentumConfig(StrategyConfig, frozen=True):
     # Time constants formatted in EST (Eastern Standard Time)
     # The paper defines open as "volume spikes" (~8:30am EST when US econ news released),
     # so first half-hour ends at ~9:00am EST (30 min after volume spikes).
-    onfh_close_time: str = "09:00"
+    onfh_close_time: str = "09:30"
     slh_open_time: str = "16:00"
     slh_close_time: str = "16:30"
+
+    # Volatility scaling (Moreira & Muir 2017)
+    vol_scaling: bool = True
+    rv_lookback: int = 22
+    max_leverage: float = 2.0
 
 
 # ---------------------------------------------------------
@@ -56,6 +63,11 @@ class BitcoinIntradayMomentum(Strategy):
 
         self.current_position_side: Optional[OrderSide] = None
         self._open_qty: Optional[Quantity] = None
+
+        # Volatility scaling state (Moreira & Muir)
+        self._daily_returns: list[float] = []
+        self._rv_history: list[float] = []
+        self._current_weight: float = 1.0
 
     def on_start(self) -> None:
         self.subscribe_bars(self.config.bar_type)
@@ -81,16 +93,27 @@ class BitcoinIntradayMomentum(Strategy):
 
         if time_str == "17:00":
             self.close_positions()
-            self.prev_close = Decimal(bar.close.as_double())
+            close_val = Decimal(bar.close.as_double())
+            if self.config.vol_scaling:
+                if self.prev_close is not None:
+                    daily_ret = float(close_val / self.prev_close) - 1.0
+                    self._daily_returns.append(daily_ret)
+            self.prev_close = close_val
+
+            if self.config.vol_scaling:
+                dt_today = dt_est.date()
+                dt_tomorrow = dt_today + pd.Timedelta(days=1)
+                if dt_tomorrow.month != dt_today.month and len(self._daily_returns) >= self.config.rv_lookback:
+                    self._rebalance()
 
     def evaluate_signal_and_trade(self, price: Decimal) -> None:
         if self.r_onfh is None or self.r_slh is None:
             return  # Wait until both intervals are safely captured for the day
 
         if self.r_onfh <= 0 and self.r_slh >= 0:
-            self._open_trade(OrderSide.BUY, price)
-        elif self.r_onfh > 0 and self.r_slh < 0:
             self._open_trade(OrderSide.SELL, price)
+        elif self.r_onfh > 0 and self.r_slh < 0:
+            self._open_trade(OrderSide.BUY, price)
         # else: no trade
 
     def close_positions(self) -> None:
@@ -103,7 +126,7 @@ class BitcoinIntradayMomentum(Strategy):
         self._open_qty = None
 
     def _open_trade(self, order_side: OrderSide, price: Decimal) -> None:
-        notional = self.config.capital * Decimal(self.config.leverage)
+        notional = self.config.capital * Decimal(self.config.leverage) * Decimal(self._current_weight)
         raw_size = notional / price
         self._open_qty = Quantity(round(float(raw_size), 3), precision=3)
         order = self.order_factory.market(
@@ -123,6 +146,12 @@ class BitcoinIntradayMomentum(Strategy):
             quantity=self._open_qty,
         )
         self.submit_order(order)
+
+    def _rebalance(self) -> None:
+        rv = sum(r * r for r in self._daily_returns[-self.config.rv_lookback:])
+        self._rv_history.append(rv)
+        c = sum(self._rv_history) / len(self._rv_history)
+        self._current_weight = min(self.config.max_leverage, c / rv) if rv > 0 else self.config.max_leverage
 
 
 # ---------------------------------------------------------
@@ -164,7 +193,12 @@ class RunConfig(PortfolioStatistic):
 # ---------------------------------------------------------
 
 
-def make_perpetual(venue_name: str, symbol_str: str) -> CryptoPerpetual:
+def make_perpetual(
+    venue_name: str,
+    symbol_str: str,
+    maker_fee: Decimal = Decimal("0.0"),
+    taker_fee: Decimal = Decimal("0.0"),
+) -> CryptoPerpetual:
     raw = symbol_str.replace("/", "")
     inst_id = InstrumentId(symbol=Symbol(f"{raw}-PERP"), venue=Venue(venue_name))
     return CryptoPerpetual(
@@ -186,8 +220,8 @@ def make_perpetual(venue_name: str, symbol_str: str) -> CryptoPerpetual:
         min_price=Price.from_str("0.1"),
         margin_init=Decimal("0.0500"),
         margin_maint=Decimal("0.0250"),
-        maker_fee=Decimal("0.000000"),
-        taker_fee=Decimal("0.000200"),
+        maker_fee=maker_fee,
+        taker_fee=taker_fee,
         ts_event=0,
         ts_init=0,
     )
@@ -223,34 +257,51 @@ def parse_interval(interval: str) -> str:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run BTC intraday momentum backtest")
     parser.add_argument(
+        "--config",
+        default="config.toml",
+        help="Path to TOML config file (default: config.toml)",
+    )
+    parser.add_argument(
         "--feather", help="Path to feather file (auto-detect if omitted)"
     )
     parser.add_argument(
-        "--exchange", default="BINANCE", help="Venue/exchange name (default: BINANCE)"
+        "--exchange", help="Venue/exchange name (default from config.toml)"
     )
     parser.add_argument(
-        "--symbol", default="BTC/USDT", help="Trading pair (default: BTC/USDT)"
+        "--symbol", help="Trading pair (default from config.toml)"
     )
     parser.add_argument(
-        "--interval", default="5m", help="Candle interval (default: 5m)"
+        "--interval", help="Candle interval (default from config.toml)"
     )
-    parser.add_argument(
-        "--capital", default="1000", help="Starting capital in USDT (default: 1000)"
-    )
-    parser.add_argument("--leverage", default="1.0", help="Leverage (default: 1.0)")
+    parser.add_argument("--leverage", help="Leverage (default from config.toml)")
     parser.add_argument(
         "--start",
-        default="2020-01-01",
-        help="Backtest start date (default: 2020-01-01)",
+        help="Backtest start date (default from config.toml)",
     )
     args = parser.parse_args()
 
-    venue = Venue(args.exchange)
-    raw_symbol = args.symbol.replace("/", "")
-    interval_ccxt = args.interval
+    # Load TOML config (CLI args override TOML values)
+    cfg_path = Path(args.config)
+    if cfg_path.exists():
+        with cfg_path.open("rb") as f:
+            cfg = tomllib.load(f)
+    else:
+        cfg = {"run": {}, "strategy": {}}
+
+    ex = args.exchange or cfg.get("run", {}).get("exchange", "BINANCE")
+    sym = args.symbol or cfg.get("run", {}).get("symbol", "BTC/USDT")
+    interval_ccxt = args.interval or cfg.get("run", {}).get("interval", "5m")
+    capital = Decimal(str(cfg.get("run", {}).get("capital", "1000")))
+    leverage_val = float(args.leverage or cfg.get("run", {}).get("leverage", 1.0))
+    start = args.start or cfg.get("run", {}).get("start", "2020-01-01")
+    maker_fee = Decimal(str(cfg.get("run", {}).get("maker_fee", "0.0")))
+    taker_fee = Decimal(str(cfg.get("run", {}).get("taker_fee", "0.0")))
+    strat_cfg = cfg.get("strategy", {})
+
+    venue = Venue(ex)
+    raw_symbol = sym.replace("/", "")
     interval_nt = parse_interval(interval_ccxt)
-    capital = Decimal(args.capital)
-    leverage = Decimal(args.leverage)
+    leverage = Decimal(str(leverage_val))
 
     # 1. Initialize Engine
     engine = BacktestEngine(config=BacktestEngineConfig())
@@ -266,7 +317,7 @@ if __name__ == "__main__":
     )
 
     # 3. Setup Instrument
-    instrument = make_perpetual(args.exchange, args.symbol)
+    instrument = make_perpetual(ex, sym, maker_fee, taker_fee)
     engine.add_instrument(instrument)
 
     # 4. Define the BarType
@@ -277,8 +328,14 @@ if __name__ == "__main__":
         instrument_id=instrument.id,
         bar_type=bar_type,
         capital=capital,
-        leverage=leverage,
-        backtest_start_date=args.start,
+        leverage=leverage_val,
+        backtest_start_date=start,
+        onfh_close_time=strat_cfg.get("onfh_close_time", "09:30"),
+        slh_open_time=strat_cfg.get("slh_open_time", "16:00"),
+        slh_close_time=strat_cfg.get("slh_close_time", "16:30"),
+        vol_scaling=strat_cfg.get("vol_scaling", True),
+        rv_lookback=strat_cfg.get("rv_lookback", 22),
+        max_leverage=strat_cfg.get("max_leverage", 2.0),
     )
 
     # 6. Data Ingestion Block
@@ -287,7 +344,7 @@ if __name__ == "__main__":
         search_dirs = ["data", "."]
         for d in search_dirs:
             pattern = (
-                f"{d}/{args.exchange.lower()}_{raw_symbol}_{interval_ccxt}_*.feather"
+                f"{d}/{ex.lower()}_{raw_symbol}_{interval_ccxt}_*.feather"
             )
             files = sorted(glob.glob(pattern))
             if files:
@@ -342,14 +399,17 @@ if __name__ == "__main__":
     engine.portfolio.analyzer.register_statistic(CalmarRatio())
     engine.portfolio.analyzer.register_statistic(
         RunConfig(
-            pair=args.symbol,
-            exchange=args.exchange,
-            interval=args.interval,
-            capital=f"${args.capital}",
-            leverage=f"{args.leverage}x",
+            pair=sym,
+            exchange=ex,
+            interval=interval_ccxt,
+            capital=f"${capital}",
+            leverage=f"{leverage_val}x",
             maker_fee=f"{float(instrument.maker_fee) * 100:.4f}%",
             taker_fee=f"{float(instrument.taker_fee) * 100:.4f}%",
-            ofnh_close_time=f"{strategy_config.onfh_close_time}",
+            onfh_close_time=strategy_config.onfh_close_time,
+            vol_scaling=str(strategy_config.vol_scaling),
+            rv_lookback=str(strategy_config.rv_lookback),
+            max_leverage=f"{strategy_config.max_leverage}x",
         )
     )
 
@@ -412,7 +472,7 @@ if __name__ == "__main__":
     create_tearsheet(
         engine,
         output_path=tearsheet_path,
-        title=f"BTC Intraday Momentum — {args.exchange} {args.symbol} {args.interval}",
+        title=f"BTC Intraday Momentum — {ex} {sym} {interval_ccxt}",
     )
     print(f"Tearsheet saved to {tearsheet_path}")
 
