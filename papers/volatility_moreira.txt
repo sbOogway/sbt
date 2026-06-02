@@ -1,0 +1,2365 @@
+THE JOURNAL OF FINANCE • VOL. LXXII, NO. 4 • AUGUST 2017
+
+Volatility-Managed Portfolios
+ALAN MOREIRA and TYLER MUIR∗
+ABSTRACT
+Managed portfolios that take less risk when volatility is high produce large alphas,
+increase Sharpe ratios, and produce large utility gains for mean-variance investors.
+We document this for the market, value, momentum, proﬁtability, return on equity,
+investment, and betting-against-beta factors, as well as the currency carry trade.
+Volatility timing increases Sharpe ratios because changes in volatility are not offset
+by proportional changes in expected returns. Our strategy is contrary to conventional
+wisdom because it takes relatively less risk in recessions. This rules out typical riskbased explanations and is a challenge to structural models of time-varying expected
+returns.
+
+WE CONSTRUCT PORTFOLIOS THAT SCALE monthly returns by the inverse of their
+previous month’s realized variance, decreasing risk exposure when variance
+was recently high and vice versa. We call these volatility-managed portfolios.
+We document that this simple trading strategy earns large alphas across a
+wide range of asset pricing factors, suggesting that investors can beneﬁt from
+volatility timing. We then interpret these results from both a portfolio choice
+and a general equilibrium perspective.
+We motivate our analysis from the vantage point of a mean-variance investor,
+who adjusts her allocation according to the attractiveness of the mean-variance
+trade-off, μt /σt2 . Because variance is highly forecastable at short horizons, and
+variance forecasts are only weakly related to future returns at these horizons,
+our volatility-managed portfolios produce signiﬁcant risk-adjusted returns for
+∗ Alan Moreira is with the University of Rochester, Tyler Muir is with UCLA and the NBER.
+We thank the Editor (Ken Singleton), two anonymous referees, Matthew Baron, Jonathan Berk,
+Olivier Boguth, John Campbell, John Cochrane, Kent Daniel, Peter DeMarzo, Marcelo Fernandes,
+Wayne Ferson, Stefano Giglio, William Goetzmann, Mark Grinblatt, Ben Hebert, Steve Heston,
+Jon Ingersoll, Ravi Jagannathan, Bryan Kelly, Ralph Koijen, Serhiy Kosak, Hanno Lustig, Toby
+Moskowitz, Justin Murﬁn, Stefan Nagel, David Ng, Lubos Pastor, Lasse Pedersen, Myron Scholes,
+Ivan Shaliastovich, Tuomo Vuoltenahoo, Jonathan Wallen, Lu Zhang, and participants at Yale
+SOM, UCLA Anderson, Stanford GSB, Michigan Ross, Chicago Booth, Ohio State, Baruch College,
+Cornell, the NYU Five Star conference, the Colorado Winter Finance Conference, the Jackson Hole
+Winter Finance Conference, the ASU Sonoran Conference, the UBC winter conference, the NBER,
+the Paul Woolley Conference, the SFS Calvacade, and Arrowstreet Capital for comments. We especially thank Nick Barberis for many useful discussions. We also thank Ken French, Lasse Pedersen,
+Alexi Savov, Adrien Verdelhan, and Lu Zhang for providing data. Both authors disclose that, after our work had already circulated, this research was solicited for compensated presentations at
+Arrowstreet Capital, Mellon Capital, Panagora Asset Management, and Phase Capital.
+
+DOI: 10.1111/joﬁ.12513
+
+1611
+
+1612
+
+The Journal of FinanceR
+
+the market, value, momentum, proﬁtability, return on equity, investment, and
+betting-against-beta factors in equities as well as for the currency carry trade.
+Annualized alphas and Sharpe ratios with respect to the original factors are
+substantial. For the market portfolio our strategy produces an alpha of 4.9%,
+an appraisal ratio of 0.33, and an overall 25% increase in the buy-and-hold
+Sharpe ratio.
+Figure 1 provides intuition for our results for the market portfolio. In line
+with our trading strategy, we group months by the previous month’s realized
+volatility and plot average returns, volatility, and the mean-variance trade-off
+over the subsequent month. There is little relation between lagged volatility
+and average returns but there is a strong relationship between lagged volatility
+and current volatility. This means that the mean-variance trade-off weakens
+in periods of high volatility. From a portfolio choice perspective, this pattern
+implies that a standard mean-variance investor should time volatility, that is,
+take more risk when the mean-variance trade-off is attractive (volatility is low),
+and take less risk when the mean-variance trade-off is unattractive (volatility
+is high). From a general equilibrium perspective, this pattern presents a challenge to representative agent models focused on the dynamics of risk premia.
+From the vantage point of these theories, the empirical pattern in Figure 1
+implies that an investor’s willingness to take stock market risk must be higher
+in periods of high stock market volatility, which runs counter to most theories.
+Sharpening the puzzle is the fact that volatility is typically high during recessions, ﬁnancial crises, and in the aftermath of market crashes when theory
+generally suggests investors should, if anything, be more risk averse relative
+to normal times.
+Our volatility-managed portfolios reduce risk-taking during these bad
+times—times when the conventional wisdom is to increase risk-taking or hold
+risk-taking constant.1 For example, in the aftermath of the sharp price declines
+in the fall of 2008, a widely held view was that those that reduced positions
+in equities were missing a once-in-a-generation buying opportunity.2 Yet, our
+strategy cashed out almost completely and returned to the market only as the
+spike in volatility receded. Indeed, we show that our simple strategy worked
+well throughout several crisis episodes, including the Great Depression, the
+Great Recession, and 1987 stock market crash. More broadly, we show that our
+volatility-managed portfolios take substantially less risk during recessions.
+These facts may be surprising in light of evidence showing that expected
+returns are high in recessions (Fama and French (1989)) and in the aftermath of market crashes (Muir (2016)). To better understand the business cycle
+1 For example, in August 2015, a period of high volatility, Vanguard—a leading mutual fund
+company—gave advice consistent with this view :“What to do during market volatility? Perhaps
+nothing.” See https://personal.vanguard.com/us/insights/article/market-volatility-082015.
+2 See, for example, John Cochrane (“Is now time to buy stocks?” 2008, Wall Street Journal)
+and Warren Buffet (“Buy America. I am,” 2008, The New York Times) make the case for this view.
+However, consistent with our main ﬁndings, Nagel et al. (2016) show that many households respond
+to volatility by selling stocks in 2008 and that this effect is larger for higher income households,
+which may be more sophisticated traders.
+
+Volatility-Managed Portfolios
+
+1613
+
+Figure 1. Sorts on the previous month’s volatility. We use the monthly time series of realized
+volatility to sort the following month’s returns into ﬁve buckets. The lowest, “low vol,” looks at
+the properties of returns over the month following the lowest 20% of realized volatility months.
+We show the average return over the next month, the standard deviation over the next month,
+and the average return divided by variance. Average return per unit of variance represents the
+optimal risk exposure of a mean-variance investor in partial equilibrium, and also represents
+“effective risk-aversion” from a general equilibrium perspective (i.e., the implied risk aversion, γt , of
+a representative agent needed to satisfy Et [Rt+1 ] = γt σt2 ). The last panel shows the probability of
+a recession across volatility buckets by computing the average of an NBER recession dummy. Our
+sorts should be viewed as analogous to standard cross-sectional sorts (i.e., book-to-market sorts)
+but are instead done in the time series using lagged realized volatility. (Color ﬁgure can be viewed
+at wileyonlinelibrary.com)
+
+behavior of the risk-return trade-off, we combine information about timevariation in both expected returns and variance. Using a vector autoregression (VAR), we show that, in response to a variance shock, the conditional
+variance initially increases by far more than the expected return. A meanvariance investor would decrease his or her risk exposure by around 50% after
+a one-standard-deviation shock to the market variance. However, since volatility movements are less persistent than movements in expected returns, our
+
+1614
+
+The Journal of FinanceR
+
+optimal portfolio strategy prescribes a gradual increase in exposure as the initial volatility shock fades. This difference in persistence helps reconcile the
+evidence on countercyclical expected returns with the proﬁtability of our strategy. Relatedly, we also show that our alphas slowly decline as the rebalancing
+period grows because current volatility is a weaker forecast for future volatility
+as we increase horizon.
+We conduct an extensive battery of tests to evaluate the robustness of our
+result. We show that the typical investor can beneﬁt from volatility timing
+even if subject to realistic transaction costs and tight leverage constraints. The
+strategy works just as well if implemented through options to achieve high embedded leverage, which further suggests that leverage constraints are unlikely
+to explain the high alphas of our volatility-managed strategies. Consistent with
+these results, we show that our volatility-managed strategy is different from
+strategies that explore low-risk anomalies in the cross-section such as risk parity (Asness, Frazzini, and Pedersen (2012)) and betting against beta (Frazzini
+and Pedersen (2014)). Moreover, we also study a volatility-managed version of
+the betting-against-beta factor to show how our approach can also be combined
+with a cross-sectional low-risk strategy.
+In the Internet Appendix, we show that our strategy works for a credit-risk
+factor formed from excess corporate bond returns; that it works for international stock market indices; that it can be further improved through the use
+of more sophisticated models of variance forecasting; that it does not generate
+fatter left tails than the original factors or create option-like payoffs; that it
+is less exposed to volatility shocks than the original factors (ruling out explanations based on the variance risk premium); that it cannot be explained by
+downside market risk (Ang, Chen, and Xing (2006), Lettau, Maggiori, and Weber (2014)), disaster risk, or jump risk; and that it outperforms not only using
+alpha and Sharpe ratios but also manipulation-proof measures of performance
+(Goetzmann et al. (2007)).3
+Once we establish that the proﬁtability of our volatility-managed portfolios
+is a robust feature of the data, we study the economic interpretation of our
+results in terms of utility gains, the behavior of the aggregate price of risk, and
+equilibrium models. First, we ﬁnd that mean-variance utility gains from our
+volatility-managed strategy are large, about 65% of lifetime utility. This compares favorably with Campbell and Thompson (2008), and a longer literature
+on return predictability, who ﬁnd mean-variance utility beneﬁts of 35% from
+timing expected returns.
+Next we show more formally how the alpha of our volatility-managed
+portfolio relates to the risk-return trade-off. In particular, we show that
+α ∝ −cov(μt /σt2 , σt2 ). Thus, consistent with Figure 1, the negative relationship
+between μt /σt2 and conditional variance drives our positive alphas. The positive alphas we document across all strategies implies that the factor prices of
+risk, μt /σt2 , are negatively related to factor variances in each case. When the
+factors span the conditional mean-variance frontier, this result tells us about
+3 The Internet Appendix may be found in the online version of this article.
+
+Volatility-Managed Portfolios
+
+1615
+
+the aggregate variation in the price of risk, that is, about compensation for
+risk over time and the dynamics of the stochastic discount factor. Formally, we
+show how to use our strategy alpha to construct a stochastic discount factor
+that incorporates these dynamics and that can unconditionally price a broader
+set of dynamic strategies with a large reduction in pricing errors.
+Lastly, we contrast the price of risk dynamics we recover from the data with
+leading structural asset pricing theories. These models all feature a weakly positive correlation between μt /σt2 and variance so that volatility-managed alphas
+are either negative or near zero. This is because, in bad times when volatility
+increases, effective risk-aversion in these models also increases, driving up the
+compensation for risk. This is a typical feature of standard rational, behavioral, and intermediary models of asset pricing. More speciﬁcally, the alphas of
+our volatility-managed portfolios pose a challenge to macroﬁnance models that
+is statistically sharper than standard risk-return regressions, which produce
+mixed and statistically weak results (see Glosten, Jagannathan, and Runkle
+(1993), Whitelaw (1994), Lettau and Ludvigson (2003), Lundblad (2007)).4 Consistent with this view, we simulate artiﬁcial data from these models and show
+that they are able to produce risk-return trade-off regressions that are not easily rejected by the data. However, they are very rarely able to produce return
+histories consistent with the volatility-managed portfolio alphas that we document. Thus, the facts documented here are sharper challenges to standard
+models in terms of the dynamic behavior of volatility and expected returns.
+The general equilibrium results and broader economic implications that we
+highlight also demonstrate why our approach differs from other asset allocation papers that use volatility, because our results can speak to the evolution of
+the aggregate risk-return trade-off. For example, Fleming, Kirby, and Ostdiek
+(2001, 2003) study daily asset allocation across stocks, bonds, and gold based on
+estimating the conditional covariance matrix that performs cross-sectional asset allocation, and Barroso and Santa-Clara (2015) and Daniel and Moskowitz
+(2016) study volatility timing related to momentum crashes.5 Instead, our approach focuses on the time series of many aggregate priced factors, which allows
+us to give economic content to the returns on the volatility-managed strategies.
+This paper proceeds as follows. Section I documents our main empirical results. Section II studies our strategy in more detail and provides various robustness checks. Section III shows formally the economic content of our volatilitymanaged alphas. Section IV discusses implications for structural asset pricing
+models. Section V concludes.
+I. Main Results
+A. Data Description
+We use both daily and monthly data from Kenneth French’s website on the
+excess market return (Mkt), size factor (SMB), value factor (HML), momentum
+4 See also related work by Tang and Whitelaw (2011), Bollerslev et al. (2016), and Martin (2016).
+5 Daniel, Hodrick, and Lu (2015) also look at a strategy related to ours for currencies.
+
+1616
+
+The Journal of FinanceR
+
+factor (Mom), proﬁtability factor (RMW), and investment factor (CMA). The
+ﬁrst three factors are the original Fama-French three factors (Fama and French
+(1996)), while the last two are a proﬁtability and an investment factor that they
+use in their ﬁve-factor model (Novy-Marx (2013), Fama and French (2015)).
+Mom represents the momentum factor, which goes long past winners and short
+past losers. We include daily and monthly data from Hou, Xue, and Zhang
+(2014), which includes an investment factor, IA, and a return on equity factor,
+ROE. In addition, we include the betting-against-beta (BAB) factor from Frazzini and Pedersen (2014). Finally, we use data on currency returns from Lustig,
+Roussanov, and Verdelhan (2011) provided by Adrien Verdelhan. We use the
+monthly high minus low carry factor formed on the interest rate differential,
+or forward discount, of various currencies. We have monthly data on returns
+and use daily data on exchange rate changes for the high and low portfolios to
+construct our volatility measure. We refer to this factor as “Carry” or “FX” to
+save on notation and to emphasize that it is a carry factor formed in foreign
+exchange markets.
+B. Portfolio Formation
+We construct our volatility-managed portfolios by scaling an excess return
+by the inverse of its conditional variance. Each month our strategy increases or
+decreases risk exposure to the portfolio according to variation in our measure
+of conditional variance. The managed portfolio is then
+c
+σ
+= 2
+(1)
+ft+1 ,
+ft+1
+σ̂t ( f )
+where ft+1 is the buy-and-hold portfolio excess return, σ̂t2 ( f ) is a proxy for
+the portfolio’s conditional variance, and the constant c controls the average
+exposure of the strategy. For ease of interpretation, we choose c so that the
+managed portfolio has the same unconditional standard deviation as the buyand-hold portfolio.6
+The motivation for this strategy comes from the portfolio problem of a meanvariance investor who is deciding how much to invest in a risky portfolio (e.g.,
+the market portfolio). The optimal portfolio weight is proportional to the at] 7
+. Motivated by
+tractiveness of the risk-return trade-off, that is, wt∗ ∝ Eσ̂t [2f(t+1
+t f)
+empirical evidence that volatility is highly variable, persistent, and does not
+predict returns, we approximate the conditional risk-return trade-off by the
+inverse of the conditional variance. In our main results, we keep the portfolio
+construction even simpler by using the previous month’s realized variance as
+a proxy for the conditional variance,
+
+2
+∑1
+1
+
+d=1/22 ft+d
+2
+2
+.
+(2)
+ft+d −
+σ̂t ( f ) = RVt ( f ) =
+22
+d=1/22
+
+6 Importantly, c has no effect on our strategy’s Sharpe ratio, and thus the fact that we use the
+
+full sample to compute c does not impact our results.
+7 This is true in the univariate case but also in the multifactor case when factors are approximately uncorrelated.
+
+Volatility-Managed Portfolios
+
+1617
+
+Figure 2. Time series of volatility by factor. This ﬁgures plots the time series of the monthly
+volatility of each individual factor. We emphasize the common comovement in volatility across
+factors and the fact that volatility generally increases for all factors in recessions. Light shaded
+bars indicate NBER recessions and show a clear business cycle pattern in volatility.
+
+An appealing feature of this approach is that it can be easily implemented
+by an investor in real time and does not rely on any parameter estimation. We
+plot the realized volatility for each factor in Figure 2. In the Internet Appendix,
+we consider the use of more sophisticated variance forecasting models.8
+C. Empirical Methodology
+We run a time-series regression of the volatility-managed portfolio on the
+original factors,
+σ
+ft+1
+= α + β ft+1 + t+1 .
+
+(3)
+
+A positive intercept implies that volatility timing increases Sharpe ratios
+relative to the original factors. When this test is applied to systematic factors
+(e.g., the market portfolio) that summarize pricing information for a wide crosssection of assets and strategies, a positive alpha implies that our volatilitymanaged strategy expands the mean-variance frontier. We rely on the extensive
+empirical asset pricing literature in identifying these factors. In particular,
+a large empirical literature ﬁnds that the factors we use summarize the
+8 See also Ang (2014) for an example of volatility timing using the Implied Volatility Index (VIX)
+for a shorter sample.
+
+1618
+
+The Journal of FinanceR
+
+pricing information contained in a wide set of assets and hence we can focus
+on understanding the behavior of just these factors.
+D. Single-Factor Portfolios
+We ﬁrst apply our analysis factor by factor. The single-factor alphas have
+economic interpretation when the individual factors accurately describe the
+opportunity set of investors or these factors have low correlation with each
+other, that is, each factor captures a different dimension of risk. The singlefactor results are also useful to show that the empirical pattern we document
+is pervasive across factors and that our results are uniquely driven by the
+time-series relationship between risk and return.
+Table I reports results from running a regression of the volatility-managed
+portfolios on the original factors. We see positive, statistically signiﬁcant intercepts (α’s) in most cases. The managed market portfolio on its own deserves
+special attention because this strategy would have been easily available to the
+average investor in real time; moreover the results in this case directly relate to
+a long literature on market timing that we discuss below.9 The scaled market
+factor has an annualized alpha of 4.86% and a beta of only 0.6. While most
+alphas are strongly positive, the largest is for the momentum factor.10 Finally,
+in the bottom of the table, we show that these results are relatively unchanged
+when we control for the Fama-French three factors in addition to the original factor in every regression. Below we discuss multifactor adjustments more
+broadly.
+The top panel of Figure 3 plots the cumulative nominal returns to the
+volatility-managed market factor compared to a buy-and-hold strategy from
+1926 to 2015. We invest $1 in 1926 and plot the cumulative returns to each
+strategy on a log scale. The volatility-managed factor realizes relatively steady
+gains, which cumulate to around $20,000 at the end of the sample versus
+about $4,000 for the buy-and-hold strategy. The lower panels of Figure 3
+plot the drawdown and annual returns of the strategy relative to the market, which helps us understand when our strategy loses money relative to the
+buy-and-hold strategy. Our strategy takes relatively more risk when volatility is low (e.g., the 1960s) and thus, not surprisingly, its largest losses are
+concentrated in these times. In contrast, large market losses tend to happen
+when volatility is high (e.g., the Great Depression or recent ﬁnancial crisis),
+and our strategy avoids these episodes. As a result, the worst time periods for
+our strategy do not overlap much with the worst market crashes. This result
+illustrates that our strategy works by shifting when it takes market risk and
+not by loading on extreme market realizations as proﬁtable option strategies
+typically do.
+
+9 The typical investor will likely ﬁnd it difﬁcult to trade the momentum factor, for example.
+
+10 This is consistent with Barroso and Santa-Clara (2015), who ﬁnd that strategies that avoid
+large momentum crashes by timing momentum volatility perform exceptionally well.
+
+1619
+
+Volatility-Managed Portfolios
+Table I
+
+Volatility-Managed Factor Alphas
+In Panel A, we run time-series regressions of each volatility-managed factor on the nonmanaged
+factor ftσ = α + β ft + εt . The managed factor, f σ , scales by the factor’s inverse realized variance
+in the preceding month ftσ = c2 ft . In Panel B, we include the Fama-French three factors as
+RVt−1
+
+additional controls in the regression. The data are monthly and the sample period is 1926 to 2015
+for Mkt, SMB, HML, and Mom; 1963 to 2015 for RMW and CMA; 1967 to 2015 for ROE and IA;
+1983 to 2015 for the FX carry factor; and 1929–2012 for BAB. Standard errors are in parentheses
+and adjust for heteroskedasticity. All factors are annualized in percent per year by multiplying
+monthly factors by 12.
+Panel A: Univariate Regressions
+(1)
+Mktσ
+
+MktRF
+
+(2)
+SMBσ
+
+(3)
+HMLσ
+
+(4)
+Momσ
+
+(5)
+RMWσ
+
+(6)
+CMAσ
+
+(7)
+FXσ
+
+(8)
+ROEσ
+
+(9)
+IAσ
+
+0.61
+(0.05)
+
+SMB
+
+0.62
+(0.08)
+
+HML
+
+0.57
+(0.07)
+
+Mom
+
+0.47
+(0.07)
+
+RMW
+
+0.62
+(0.08)
+
+CMA
+
+0.68
+(0.05)
+
+Carry
+
+0.71
+(0.08)
+
+ROE
+
+0.63
+(0.07)
+
+IA
+
+0.68
+(0.05)
+
+BAB
+Alpha (α)
+N
+R2
+RMSE
+
+(10)
+BABσ
+
+4.86
+(1.56)
+1,065
+0.37
+51.39
+
+−0.58
+(0.91)
+1,065
+0.38
+30.44
+
+1.97
+(1.02)
+1,065
+0.32
+34.92
+
+12.51
+(1.71)
+1,060
+0.22
+50.37
+
+2.44
+(0.83)
+621
+0.38
+20.16
+
+0.38
+(0.67)
+621
+0.46
+17.55
+
+2.78
+(1.49)
+360
+0.33
+25.34
+
+5.48
+(0.97)
+575
+0.40
+23.69
+
+1.55
+(0.67)
+575
+0.47
+16.58
+
+0.57
+(0.05)
+5.67
+(0.98)
+996
+0.33
+29.73
+
+1.14
+(0.69)
+
+5.63
+(0.97)
+
+Panel B: Alphas Controlling for Fama-French Three Factors
+Alpha (α)
+
+5.45
+(1.56)
+
+−0.33
+(0.89)
+
+2.66
+(1.02)
+
+10.52
+(1.60)
+
+3.18
+(0.83)
+
+−0.01
+(0.68)
+
+2.54
+(1.65)
+
+5.76
+(0.97)
+
+In all tables reporting α’s, we also include the root mean squared error,
+which allows us to construct the managed factor excess Sharpe ratio (or “appraisal ratio”) given by σαε , thus giving us a measure of the extent to which
+dynamic trading expands the slope of the mean-variance efﬁcient (MVE) frontier spanned by the original factors. More speciﬁcally, the new Sharpe ratio
+
+1620
+
+The Journal of FinanceR
+Cumulative performance
+
+10 5
+Buy and hold
+Volatility managed
+
+10 4
+
+10 3
+
+10 2
+
+10 1
+
+10 0
+
+10 -1
+
+1930
+
+1940
+
+1950
+
+1960
+
+One-Year Rolling Average Returns
+
+1.5
+
+1970
+
+1980
+
+1990
+
+2010
+
+Drawdowns
+
+1
+
+Buy and hold
+Volatility managed
+
+2000
+
+0.9
+
+1
+
+0.8
+0.7
+
+0.5
+
+0.6
+0.5
+
+0
+
+Buy and hold
+Volatility managed
+
+0.4
+0.3
+
+-0.5
+
+0.2
+-1
+
+1930
+
+1940
+
+1950
+
+1960
+
+1970
+
+1980
+
+1990
+
+2000
+
+2010
+
+0.1
+
+1930
+
+1940
+
+1950
+
+1960
+
+1970
+
+1980
+
+1990
+
+2000
+
+2010
+
+Figure 3. Cumulative returns to the volatility-managed market return. The top panel
+plots the cumulative returns to a buy-and-hold strategy versus a volatility-managed strategy for
+the market portfolio from 1926 to 2015. The y-axis is on a log scale and both strategies have the
+same unconditional monthly standard deviation. The lower left panel plots rolling one-year returns
+from each strategy and the lower right panel shows the drawdown of each strategy.
+
+is SRnew =
+
+√
+
+2
+SRold
++ ( σαε )2 , where SRold is the Sharpe ratio given by the orig-
+
+inal nonscaled factor. For example, in Table I, scaled momentum has an α
+of 12.5 and a root mean square
+√ error of around 50, which means that its
+= 0.875. The scaled markets’ annualannualized appraisal ratio is 12 12.5
+50
+11
+ized appraisal ratio is 0.34. Other notable appraisal ratios across factors are
+HML (0.20), proﬁtability (0.41), carry (0.44), ROE (0.80), investment (0.32), and
+BAB (0.66).
+
+11 We need to multiply the monthly appraisal ratio by
+
+√
+
+12 to arrive at annual numbers. We
+multiplied all factor returns by 12 to annualize them but that also multiplies volatilities by 12, so
+the Sharpe ratio will still be a monthly number.
+
+Volatility-Managed Portfolios
+
+1621
+
+An alternative way to quantify the economic relevance of our results is from
+the perspective of a simple mean-variance investor. The percentage utility gain
+is
+U MV (%) =
+
+2
+2
+− SRold
+SRnew
+.
+2
+SRold
+
+(4)
+
+Our results imply large utility gains. For example, a mean-variance investor
+who can only trade the market portfolio can increase lifetime utility by 65%
+through volatility timing. We extend these computations to long-lived investors
+and more general preferences in Moreira and Muir (2016). The extensive market timing literature provides a useful benchmark for these magnitudes. Campbell and Thompson (2008) estimate that the utility gain of timing expected
+returns is 35% of lifetime utility. Volatility timing not only generates gains
+almost twice as large, but also works across multiple factors.
+E. Multifactor Portfolios
+We now extend our analysis to a multifactor environment. We ﬁrst construct
+a portfolio by combining the multiple factors. We choose weights so that our
+multifactor portfolio is MVE for the set of factors, and as such, the multifactor
+portfolio prices not only the individual factors but also the wide set of assets
+and strategies priced by them. We refer to this portfolio as multifactor MVE.
+It follows that the MVE alpha is the right measure of expansion in the meanvariance frontier. Speciﬁcally, a positive MVE alpha implies that our volatilitymanaged strategy increases Sharpe ratios relative to the best buy-and-hold
+Sharpe ratio achieved by someone with access to the multiple factors.
+We construct the MVE portfolio as follows. Let Ft+1 be a vector of factor
+returns and b the static weights that produce the maximum in-sample Sharpe
+MV E
+= b Ft+1 . We then construct
+ratio. We deﬁne the MVE portfolio as ft+1
+MV E,σ
+ft+1
+=
+
+σ̂t2
+
+
+
+c
+MV E
+ft+1
+
+MV E
+ ft+1
+,
+
+(5)
+
+where again c is a constant that normalizes the variance of the volatilitymanaged portfolio such that it is equal to the MVE portfolio. Thus, our
+volatility-managed portfolio shifts the conditional beta on the MVE portfolio, but does not change the relative weights across the individual factors. As
+a result, our strategy focuses uniquely on the time-series aspect of volatility
+timing.
+In Table II, we show that the volatility-timed MVE portfolios have positive
+alpha with respect to the original MVE portfolios for all combinations of factors
+we consider including the Fama-French (1996, 2015) three and ﬁve factors or
+the Hou, Xue, and Zhang (2014) factors. This ﬁnding is robust to including the
+momentum factor as well. Appraisal ratios are all economically large and range
+from 0.33 to 0.91. Note that the original MVE Sharpe ratios are likely to be
+
+1622
+
+The Journal of FinanceR
+Table II
+
+Mean-Variance Efﬁcient Factors
+In Panel A, we form unconditional mean-variance efﬁcient (MVE) portfolios using various combinations of factors. These underlying factors can be thought of as the relevant information set for a
+given investor (e.g., an investor who only has the market available, or a sophisticated investor who
+also has value and momentum available). We then volatility time each of these MVE portfolios and
+report alphas from regressing the volatility-managed portfolio on the original MVE portfolio. The
+volatility-managed portfolio scales the portfolio by the inverse of the portfolios’ realized variance
+in the previous month. We also report the annualized Sharpe ratio of the original MVE portfolio
+and the appraisal ratio of the volatility-managed MVE portfolio, which tells us how much the
+volatility-managed portfolio increases investors’ Sharpe ratio relative to no volatility timing. The
+factors considered are the Fama-French three- and ﬁve-factor models, the momentum factor, and
+the Hou, Xue, and Zhang (2014) four factors (HXZ). Panel B reports the alphas of these MVE
+combinations in subsamples where we split the data into three 30-year periods. Note that some
+factors are not available in the early sample. Standard errors are in parentheses and adjust for
+heteroskedastiticy.
+Panel A: Mean-Variance Efﬁcient Portfolios (Full Sample)
+
+Alpha (α)
+Observations
+R2
+RMSE
+Original Sharpe
+Vol-Managed Sharpe
+Appraisal Ratio
+
+(1)
+Mkt
+
+(2)
+FF3
+
+(3)
+FF3 Mom
+
+(4)
+FF5
+
+(5)
+FF5 Mom
+
+(6)
+HXZ
+
+(7)
+HXZ Mom
+
+4.86
+(1.56)
+1,065
+0.37
+51.39
+0.42
+0.51
+0.33
+
+4.99
+(1.00)
+1,065
+0.22
+34.50
+0.52
+0.69
+0.50
+
+4.04
+(0.57)
+1,060
+0.25
+20.27
+0.98
+1.09
+0.69
+
+1.34
+(0.32)
+621
+0.42
+8.28
+1.19
+1.20
+0.56
+
+2.01
+(0.39)
+621
+0.40
+9.11
+1.34
+1.42
+0.77
+
+2.32
+(0.38)
+575
+0.46
+8.80
+1.57
+1.69
+0.91
+
+2.51
+(0.44)
+575
+0.43
+9.55
+1.57
+1.73
+0.91
+
+Panel B: Subsample Analysis
+
+α: 1926–1955
+α: 1956–1985
+α: 1986–2015
+
+(1)
+Mkt
+
+(2)
+FF3
+
+(3)
+FF3 Mom
+
+(4)
+FF5
+
+(5)
+FF5 Mom
+
+(6)
+HXZ
+
+(7)
+HXZ Mom
+
+8.11
+(3.09)
+2.06
+(2.82)
+4.22
+(1.66)
+
+1.94
+(0.92)
+0.99
+(1.43)
+5.66
+(1.74)
+
+2.45
+(0.74)
+2.54
+(1.16)
+4.98
+(0.95)
+
+0.13
+(0.43)
+1.88
+(0.41)
+
+0.71
+(0.67)
+2.65
+(0.47)
+
+0.77
+(0.39)
+3.03
+(0.50)
+
+1.00
+(0.51)
+3.24
+(0.57)
+
+overstated relative to the truth, since the weights are constructed in-sample.
+Thus, the increase in Sharpe ratios we document is likely to be understated.12
+We also analyze these MVE portfolios across three 30-year subsamples (1926
+to 1955, 1956 to 1985, and 1986 to 2015) in Panel B. The results generally show
+the earlier and later periods as having stronger, more signiﬁcant alphas, with
+the results being weaker in the 1956 to 1985 period, though we note that point
+estimates are positive for all portfolios and all three subsamples. This should
+not be surprising as our results rely on a large degree of variation in volatility
+12 We thank Tuomo Vuolteenaho for raising this point.
+
+Volatility-Managed Portfolios
+
+1623
+
+to work. For example, if volatility were constant over a particular period, our
+strategy would be identical to the buy-and-hold strategy and alphas would be
+zero. Volatility varied far less in the 1956 to 1986 period, consistent with lower
+alphas during this time. In the Internet Appendix, we further document these
+results over rolling subsamples.
+II. Understanding the Proﬁtability of Volatility Timing
+In this section, we investigate our strategy from several different perspectives. Each section is self-contained so a reader can easily skip across sections
+without loss.
+A. Business Cycle Risk
+In Figure 3, we can see that the volatility-managed factor has a lower standard deviation through recession episodes like the Great Recession where
+volatility was high. Table III makes this point more clearly across our factors.
+Speciﬁcally, we run regressions of each of our volatility-managed factors on the
+original factors but also add an interaction term that includes an NBER recession dummy. The coefﬁcient on this term represents the conditional beta of our
+strategy on the original factor during recession periods relative to nonrecession
+periods. The results in the table show that, across the board for all factors, our
+strategies take less risk during recessions and thus have lower betas during recessions. For example, the nonrecession market beta of the volatility-managed
+market factor is 0.83 but the recession beta coefﬁcient is −0.51, making the
+beta of our volatility-managed portfolio conditional on a recession equal to 0.32.
+Finally, by looking at Figure 2, which plots the time-series realized volatility of
+each factor, we can clearly see that volatility for all factors tends to rise in recessions. Thus, our strategies decrease risk exposure in NBER recessions. This
+makes it difﬁcult for a business cycle risk story to explain our facts. However,
+we still review several speciﬁc risk-based stories below.
+B. Transaction Costs
+We show that our strategies survive transaction costs. These results are given
+in Table IV. Speciﬁcally, we evaluate our volatility timing strategy for the market portfolio when including empirically realistic transaction costs. We consider
+various strategies that capture volatility timing but reduce trading activity, including using standard deviation instead of variance, using expected rather
+than realized variance, and two strategies that cap the strategy’s leverage at
+1 and 1.5, respectively. Each of these reduces trading and hence transaction
+costs. We report the average absolute change in monthly weights, expected
+return, and alpha of each strategy before transaction costs. We then report
+the alpha when including various transaction cost assumptions. The 1bp cost
+comes from Fleming, Kirby, and Ostdiek (2003); the 10bps comes from Frazzini, Israel, and Moskowitz (2015), who assume the investor is trading about 1%
+
+1624
+
+The Journal of FinanceR
+Table III
+
+Recession Betas by Factor
+In this table, we regress each scaled factor on the original factor and we include recession dummies 1rec,t using NBER recessions, which we interact with the original factors; ftσ = α0 + α1 1rec,t +
+β0 ft + β1 1rec,t × ft + εt . This gives the relative beta of the scaled factor conditional on recessions
+compared to the unconditional estimate. Standard errors are in parentheses and adjust for heteroskedasticity. We ﬁnd that β1 < 0, so that betas for each factor are relatively lower in recessions.
+(1)
+Mktσ
+MktRF
+MktRF ×1rec
+
+(2)
+HMLσ
+
+(3)
+Momσ
+
+(4)
+RMWσ
+
+(5)
+CMAσ
+
+(6)
+FXσ
+
+(7)
+ROEσ
+
+0.83
+(0.08)
+−0.51
+(0.10)
+
+HML
+
+0.73
+(0.06)
+−0.43
+(0.11)
+
+HML ×1rec
+Mom
+
+0.74
+(0.06)
+−0.53
+(0.08)
+
+Mom ×1rec
+RMW
+
+0.63
+(0.10)
+−0.08
+(0.13)
+
+RMW ×1rec
+CMA
+
+0.77
+(0.06)
+−0.41
+(0.07)
+
+CMA ×1rec
+Carry
+
+0.73
+(0.09)
+−0.26
+(0.15)
+
+Carry ×1rec
+ROE
+
+0.74
+(0.08)
+−0.42
+(0.11)
+
+ROE ×1rec
+IA
+IA ×1rec
+Observations
+R2
+
+(8)
+IAσ
+
+1,065
+0.43
+
+1,065
+0.37
+
+1,060
+0.29
+
+621
+0.38
+
+621
+0.49
+
+362
+0.51
+
+575
+0.43
+
+0.77
+(0.07)
+−0.39
+(0.08)
+575
+0.49
+
+of daily volume; and the next column adds an additional 4bps to account for
+transaction costs increasing in high volatility episodes. Speciﬁcally, we use the
+slope coefﬁcient in a regression of transaction costs on the Implied Volatility
+Index (VIX) from Frazzini, Israel, and Moskowitz (2015) to evaluate the impact of a move in VIX from 20% to 40%, which represents the 98th percentile
+of VIX. Finally, the last column backs out the implied trading costs in basis
+
+1625
+
+Volatility-Managed Portfolios
+Table IV
+
+Transaction Costs of Volatility Timing
+In this table, we evaluate our volatility timing strategy for the market portfolio when including
+transaction costs. We consider alternative strategies that still capture the idea of volatility timing
+but signiﬁcantly reduce trading activity implied by our strategy. Speciﬁcally, we consider using
+inverse volatility instead of variance, using expected rather than realized variance, and using our
+original inverse realized variance but restricting risk exposure to be below 1 (i.e., no leverage) or
+1.5. For expected variance, we run an AR(1) for log variance to form our forecast. We report the
+average absolute change in monthly weights (| w |), expected return, and alpha of each of these
+alternative strategies. We then report the alpha when including various trading costs. The 1bp
+cost comes from Fleming, Kirby, and Ostdiek (2003), the 10bps comes from Frazzini, Israel, and
+Moskowitz (2015) when trading about 1% of daily volume, and the next column adds an additional
+4bps to account for transaction costs increasing in high-volatility episodes. Speciﬁcally, we use
+the slope coefﬁcient of transaction costs on VIX from Frazzini, Israel, and Moskowitz (2015) and
+evaluate this impact on a move in VIX from 20% to 40%, which represents the 98th percentile of
+VIX. Finally, the last column backs out the implied trading costs in basis points needed to drive
+our alphas to zero in each of the cases.
+α After Trading Costs
+w
+1
+RVt2
+1
+RVt
+1
+2 ]
+Et [RVt+1
+min( c 2 , 1)
+RVt
+min( c 2 , 1.5)
+RVt
+
+Description
+
+| w |
+
+E[R]
+
+α
+
+1bps
+
+10bps
+
+14bps
+
+Break Even
+
+Realized variance
+
+0.73
+
+9.47%
+
+4.86%
+
+4.77%
+
+3.98%
+
+3.63%
+
+56bps
+
+Realized vol
+Expected variance
+
+0.38
+0.37
+
+9.84%
+9.47%
+
+3.85%
+3.30%
+
+3.80%
+3.26%
+
+3.39%
+2.86%
+
+3.21%
+2.68%
+
+84bps
+74bps
+
+No leverage
+
+0.16
+
+5.61%
+
+2.12%
+
+2.10%
+
+1.93%
+
+1.85%
+
+110bps
+
+50% leverage
+
+0.16
+
+7.18%
+
+3.10%
+
+3.08%
+
+2.91%
+
+2.83%
+
+161bps
+
+points needed to drive our alphas to zero in each of the cases. The results in
+Table IV indicate that the strategy survives transactions costs, even in high
+volatility episodes where such costs likely rise (indeed, we take the extreme
+case in which VIX is at its 98th percentile). Alternative strategies that reduce
+trading costs are much less sensitive to these costs.
+Overall, we show that the annualized alpha of the volatility-managed strategy decreases somewhat for the market portfolio, but is still very large. We do
+not report results for all factors, since we do not have good measures of transaction costs for implementing the original factors, much less their volatilitymanaged portfolios.
+C. Leverage Constraints
+In this section, we explore the importance of leverage for our volatilitymanaged strategy. We show that the typical investor can beneﬁt from our
+strategy even under a tight leverage constraint.
+Panel A of Table V documents the upper distribution of the weights in
+our baseline strategy for the volatility-managed market portfolio. The median
+weight is near 1. The 75th , 90th , and 99th percentiles are 1.6, 2.6, and 6.4. Our
+baseline strategy thus uses modest leverage most of the time but does imply
+
+1626
+
+The Journal of FinanceR
+Table V
+
+Volatility Timing and Leverage
+Panel A shows several alternative volatility-managed strategies and the corresponding alphas,
+Sharpe ratios, and distribution of weights used in each strategy. The alternative strategies include
+using inverse volatility instead of variance, using expected rather than realized variance, and using
+inverse realized variance but restricting risk exposure to be below 1 (i.e., no leverage) or 1.5. For
+expected variance, we run an AR(1) for log variance to form our forecast. In particular, we focus on
+upper percentiles of weights to determine how much leverage is typically used in each strategy. In
+each case, we focus on the market portfolio. In Panel B, we consider strategies that use embedded
+leverage instead of actual leverage for the market portfolio. Speciﬁcally, we look at investing in
+a portfolio of options on the S&P500 index using either just call options or both calls and puts.
+The portfolio is an equal-weighted average of six in-the-money call options with maturities of 60
+and 90 days and moneyness of 90, 92.5, and 95. The beta of this portfolio is 7. Any time our
+strategy prescribes leverage to achieve high beta, we invest in this option portfolio to achieve
+our desired beta. We then compare the performance of the embedded leverage-volatility-managed
+portfolio to the standard volatility-managed portfolio. Finally, we consider an option strategy that
+also sells in-the-money puts (with the same moneyness as before) and buys calls to again achieve
+our desired beta. The sample used for Panel B is April 1986 to January 2012 based on data from
+Constantinides, Jackwerth, and Savov (2013). Standard errors are in parentheses and adjust for
+heteroskedastiticy.
+Panel A: Weights and Performance for Alternative Volatility-Managed Portfolios
+Distribution of Weights w
+wt
+
+Description
+
+α
+
+Sharpe
+
+Appraisal
+
+P50
+
+P75
+
+P90
+
+P99
+
+1
+RVt2
+
+Realized variance
+
+0.52
+
+0.34
+
+0.93
+
+1.59
+
+2.64
+
+6.39
+
+1
+RVt
+
+Realized volatility
+
+0.53
+
+0.33
+
+1.23
+
+1.61
+
+2.08
+
+3.36
+
+1
+2 ]
+Et [RVt+1
+
+Expected variance
+
+4.86
+(1.56)
+3.30
+(1.02)
+3.85
+(1.36)
+2.12
+(0.71)
+3.10
+(0.98)
+
+0.51
+
+0.30
+
+1.11
+
+1.71
+
+2.38
+
+4.58
+
+0.52
+
+0.30
+
+0.93
+
+1
+
+1
+
+1
+
+0.53
+
+0.33
+
+0.93
+
+1.5
+
+1.5
+
+1.5
+
+min(
+
+c
+, 1)
+RVt2
+
+No leverage
+
+min(
+
+c
+, 1.5)
+RVt2
+
+50% leverage
+
+Panel B: Embedded Leverage Using Options: 1986–2012
+Vol Timing with Embedded Leverage
+
+Sharpe Ratio
+α
+s.e.(α)
+β
+Appraisal Ratio
+
+Buy and Hold
+
+Vol Timing
+
+Calls
+
+Calls + Puts
+
+0.39
+–
+–
+–
+–
+
+0.59
+4.03
+(1.81)
+0.53
+0.44
+
+0.54
+5.90
+(3.01)
+0.59
+0.39
+
+0.60
+6.67
+(2.86)
+0.59
+0.46
+
+rather substantial leverage in the upper part of the distribution, when realized
+variance is low.
+We explore several alternative implementations of our strategy. The ﬁrst
+uses realized volatility instead of realized variance. This makes the weights
+
+Volatility-Managed Portfolios
+
+1627
+
+far less extreme, with the 99th percentile around 3 instead of 6. Second, using expected variance from a simple AR(1) rather than realized variance also
+reduces the extremity of the weights. Both of these alternatives keep roughly
+the same Sharpe ratio as the original strategy. Last, we consider our original strategy but cap the weights to be below 1 or 1.5, which captures a tight
+no-leverage constraint and leverage of 50%, which is consistent with a standard margin requirement. The Sharpe ratios do not change but of course the
+leverage-constrained portfolios have lower alphas because risk weights are, on
+average, lower. Alphas of all of these strategies are still statistically signiﬁcant.
+Because Sharpe ratios are not a good metric to asses utility gains in the
+presence of leverage constraints, in Figure 4, we compute the utility gains for
+a mean-variance investor. Speciﬁcally, consider a mean-variance investor who
+follows a buy-and-hold strategy for the market with risk exposure w = γ1 σμ2 and
+
+an investor who times volatility by setting wt = γ1 σμ2 . For any risk aversion,
+t
+γ , we can compute the weights and evaluate utility gains. Figure 4 shows
+a gain of around 60% for the market portfolio from volatility timing for an
+unconstrained investor.13 With no leverage limit, percentage utility gains are
+the same regardless of risk-aversion because investors can freely adjust their
+average risk exposure.
+Next, we impose a constraint on leverage, so that both the static buy-andhold weight w and the volatility timing weight wt must be less than or equal
+to 1 (no leverage) or 1.5 (standard margin constraint). We then evaluate utility
+beneﬁts. For investors with high risk-aversion this constraint is essentially
+never binding and their utility gains are unaffected. As we decrease investors’
+risk aversion, however, we increase their target risk exposure and are more
+likely to hit the constraint. Taken to the extreme, an investor who is risk neutral will desire inﬁnite risk exposure, and hence will do zero volatility timing,
+because wt will always be above the constraint. To get a sense of magnitudes,
+Figure 4 shows that an investor whose target risk exposure is 100% in stocks
+(risk-aversion γ ≈ 2.2) and who faces a standard 50% margin constraint will
+see a utility beneﬁt of about 45%. An investor who targets a 60/40 portfolio
+of stocks and T-bills and faces a tight no-leverage constraint will have a utility beneﬁt of about 50%. Therefore, the results suggest fairly large beneﬁts to
+volatility timing even with tight leverage constraints.
+For investors whose risk-aversion is low enough, our baseline strategy requires some way to achieve a large risk exposure when volatility is very low.
+To address the concern that very high leverage might be costly or unfeasible, we implement our strategy using options in the S&P 500, which provide
+embedded leverage. Of course, there may be many other ways to achieve a
+β above 1—options simply provide one example. We use the option portfolios
+from Constantinides, Jackwerth, and Savov (2013), focusing on in-the-money
+13 Note that 60% is slightly different from the 65% that we obtain in the Sharpe ratio-based
+calculation in Section I.D. The small difference is due to the fact that here we assume that the
+mean-variance investor only invests in the volatility-managed portfolio, while in Section I.D the
+investor is investing in the optimal MVE portfolio combination.
+
+1628
+
+The Journal of FinanceR
+Δ
+
+Δ
+
+≤
+≤
+
+Ta r g et b u y - a n d - h o l d wei g ht γμσ 2
+Figure 4. Utility beneﬁts and leverage constraints. We plot the empirical percentage utility
+gain U % for a mean-variance investor going from a buy-and-hold portfolio to a volatility-managed
+portfolio for different levels of risk-aversion and for various constraints on leverage. Speciﬁcally,
+U = E[wt Rt+1 ] − 12 γ var(wt Rt+1 ). We compute the unconditional target buy-and-hold weight (i.e.,
+the optimal portfolio for an investor who does not change risk exposure over time) as w = γ1 σμ2
+
+and volatility-managed weights as wt = γ1 μ2 . The x-axis denotes the targeted buy-and-hold weight
+σt
+
+w as we vary investor risk-aversion γ and represents the desired unconditional weight in the
+risky asset. The solid line shows the percentage increase in utility (U (wt )/U (w) − 1) when our
+weights, wt , are unrestricted and illustrates that in this case the utility gain does not depend on
+risk-aversion. The dot-dashed and dashed lines impose leverage constraints of zero leverage and
+50% leverage (consistent with a standard margin constraint), respectively. We evaluate the utility
+percentage increases U (min(wt , w̄))/U (min(w, w̄)) − 1 with w̄ = {1, 1.5}. Numbers presented are for
+the market return. (Color ﬁgure can be viewed at wileyonlinelibrary.com)
+
+call options with maturities of 60 and 90 days and whose market beta is around
+7. Whenever the strategy prescribes leverage, we use the option portfolios to
+achieve our desired risk exposure. In Panel B of Table V, we compare the strategy implemented with options to the strategy implemented with leverage. The
+alphas are very similar, which suggests that our results are not due to leverage
+constraints, even for investors with relatively low risk-aversion.14
+14 In light of recent work by Frazzini and Pedersen (2012), the fact that our strategy can be
+implemented using options should not be surprising. Frazzini and Pedersen (2012) show that, for
+
+Volatility-Managed Portfolios
+
+1629
+
+Black (1972), Black, Jensen, and Scholes (1972), and Frazzini and Pedersen
+(2014) show that leverage constraints can distort the risk-return trade-off in
+the cross-section. The idea is that the embedded leverage of high-beta assets
+makes them attractive to investors that are leverage-constrained. One could
+argue that low-volatility periods are analogous to low-beta assets, and as such
+have expected returns that are too high relative to investors willingness to take
+risk. While in theory leverage constraints could explain our ﬁndings, we ﬁnd
+that most investors can beneﬁt from volatility timing under very tight leverage
+constraints. Therefore, constraints do not seem a likely explanation for our
+ﬁndings.
+These results on leverage constraints and the results on transaction costs
+together suggest that our strategy can be realistically implemented in real
+time.
+D. Contrasting with Cross-Sectional Low-Risk Anomalies
+In this section, we show empirically that our strategy is also very different
+from strategies that explore a weak risk-return trade-off in the cross-section of
+stocks, which are often attributed to leverage constraints.
+The ﬁrst strategy, popular among practitioners, is risk parity, which mostly
+relates to cross-sectional allocation. Speciﬁcally, risk parity ignores information
+about expected returns and covariances and allocates to asset classes or factors
+in a way that makes the total volatility contribution of each asset the same. We
+follow Asness, Frazzini, and Pedersen (2012) and construct risk parity factors
+1/σ̃ i
+according to RPt+1 = bt ft+1 , where bi,t = ∑ 1/tσ̃ i and σ̃ti is a rolling three-year
+t
+i
+estimate of volatility for each factor (again exactly as in Asness, Frazzini, and
+Pedersen (2012)). This implies that if the volatility of one factor increases
+relative to other factors, the strategy will rebalance from the high-volatility
+factor to the low-volatility factor. In contrast, when we time combinations of
+factors, as in Table II, we keep the relative weights of all factors constant and
+only increase or decrease overall risk exposure based on total volatility. Thus,
+our volatility timing is conceptually quite different from risk parity. To assess
+this difference empirically, in Table VI we include a risk parity factor as an
+additional control in our time-series regression. The alphas are basically unchanged. We thus ﬁnd that controlling for the risk parity portfolios constructed
+following Asness, Frazzini, and Pedersen (2012) has no effect on our results,
+which suggests that we are picking up a different empirical phenomenon.
+The second strategy is the betting-against-beta (BAB) factor of Frazzini and
+Pedersen (2014). They show that a strategy that goes long low-beta stocks
+and shorts high-beta stocks can earn large alphas relative to the CAPM
+and the Fama-French three-factor model that includes a momentum factor.
+Conceptually, our strategy is quite different. While the high risk–adjusted
+option strategies on the S&P 500 index with embedded leverage up to 10, there is no difference in
+average returns relative to strategies that leverage the cash index. This implies that our strategy
+can be easily implemented using options for relatively high levels of leverage.
+
+1630
+
+The Journal of FinanceR
+Table VI
+
+Time-Series Alphas Controlling for Risk Parity Factors
+In this table, we run time-series regressions of each volatility-managed factor on the nonmanaged
+factor plus a risk parity factor based on Asness, Frazzini, and Pedersen (2012). The risk parity
+1/σ̃ti
+i
+i 1/σ̃t
+
+factor is given by RPt+1 = bt ft+1 , where bi,t = ∑
+
+and f is a vector of pricing factors. Volatil-
+
+ity is measured on a rolling three-year basis following Asness, Frazzini, and Pedersen (2012).
+We construct this risk parity portfolio for various combinations of factors. We then regress our
+volatility-managed MVE portfolios from Table II on both the static MVE portfolio and the risk
+parity portfolio formed using the same factors, f , that make up the MVE portfolio. We ﬁnd that
+our alphas are unchanged from those found in the main text. In the last column, we report the
+alpha for the volatility-managed betting-against-beta (BAB) portfolio to show that our time-series
+volatility timing is different from cross-sectional low-risk anomalies and that in fact both can
+be combined together. Standard errors are in parentheses and adjust for heteroskedasticity. All
+factors are annualized in percent per year by multiplying monthly factors by 12.
+
+Alpha (α)
+N
+R2
+RMSE
+
+(1)
+Mkt
+
+(2)
+FF3
+
+(3)
+FF3 Mom
+
+(4)
+FF5
+
+(5)
+FF5 Mom
+
+(6)
+HXZ
+
+(7)
+HXZ Mom
+
+(8)
+BABσ
+
+4.86
+(1.56)
+1,065
+0.37
+51.39
+
+5.00
+(1.00)
+1,065
+0.23
+34.30
+
+4.09
+(0.57)
+1,060
+0.26
+20.25
+
+1.32
+(0.31)
+621
+0.42
+8.279
+
+1.97
+(0.40)
+621
+0.40
+9.108
+
+2.03
+(0.32)
+575
+0.50
+8.497
+
+2.38
+(0.44)
+575
+0.44
+9.455
+
+5.67
+(0.98)
+996
+0.33
+29.73
+
+return of the BAB factor reﬂects the fact that differences in average returns are not explained by differences in CAPM betas in the cross-section,
+our strategy is based on the fact that, across time periods, differences in
+average returns are not explained by differences in stock market variance.
+Our strategy is capturing different phenomena in the data. In the last column of Table VI, we show further that a volatility-managed version of the
+BAB portfolio also earns large alphas relative to the buy-and-hold BAB portfolio. Therefore, one can volatility time the cross-sectional anomaly. In addition, we ﬁnd that our alphas are not impacted if we add the BAB factor as a control (see the Internet Appendix). Thus, our time-series volatilitymanaged portfolios are distinct from the low-beta anomaly documented in the
+cross-section.
+E. Volatility Comovement
+A natural question is whether one can implement our results using a common volatility factor. Because realized volatility is highly correlated across factors, normalizing by a common volatility factor does not drastically change our
+results. To see this, we compute the ﬁrst principal component of realized variance across all factors and normalize each factor by RV1PC .15 This is in contrast
+t
+to normalizing by each factor’s own realized variance. Table VII reports the
+15 Using an equal-weighted average of realized volatilities, or even just the realized volatility of
+the market return, produces similar results.
+
+1631
+
+Volatility-Managed Portfolios
+Table VII
+
+Normalizing by Common Volatility
+In this table, we construct volatility-managed strategies for each factor using the ﬁrst principal
+component of realized variance across all factors. Each factor is thus normalized by the same
+variable, in contrast to our main results, where each factor is normalized by that factor’s past
+realized variance. We run time-series regressions of each managed factor on the nonmanaged
+factor. Standard errors are in parentheses and adjust for heteroskedastiticy.
+
+Alpha (α)
+N
+R2
+RMSE
+
+(1)
+Mktσ
+
+(2)
+SMBσ
+
+(3)
+HMLσ
+
+(4)
+Momσ
+
+(5)
+RMWσ
+
+(6)
+CMAσ
+
+(7)
+FXσ
+
+(8)
+ROEσ
+
+(9)
+IAσ
+
+4.22
+(1.49)
+1,061
+0.42
+49.31
+
+0.24
+(0.83)
+1,061
+0.45
+28.74
+
+3.09
+(0.96)
+1,061
+0.36
+33.87
+
+11.00
+(1.70)
+1,060
+0.33
+46.57
+
+1.16
+(0.81)
+622
+0.44
+19.11
+
+−0.22
+(0.66)
+622
+0.51
+16.67
+
+−1.28
+(1.21)
+362
+0.64
+18.49
+
+4.21
+(1.00)
+576
+0.47
+22.13
+
+1.24
+(0.61)
+576
+0.56
+15.06
+
+results, which are slightly weaker than the main results. For most factors, the
+common volatility timing works about the same. However, it is worth noting
+that the alpha for the currency carry trade disappears. The realized volatility of
+the carry trade returns is quite different from the other factors (likely because
+it represents an entirely different asset class), and hence it is not surprising
+that timing this factor with a common volatility factor from (mostly) equity
+portfolios will work poorly.
+The strong comovement among equities validates our approach in Section
+I.E, where we impose a constant weight across portfolios to construct the MVE
+portfolio.
+F. Horizon Effects
+We have implemented our strategy by rebalancing it once a month and running time-series regressions at the monthly frequency. A natural question to
+ask is whether our results hold at lower frequencies. Less frequent rebalancing periods might be interesting from the perspective of macroﬁnance models,
+which are often used to explain variation in risk premia and the price of risk
+at quarterly or annual frequencies. Lower frequencies are also useful to better
+understand the full dynamic relationship between volatility shocks, expected
+returns, and the price of risk. In particular, they allow us to reconcile our
+results with the well-known empirical facts that movements in both stockmarket variance and expected returns are countercyclical (French, Schwert,
+and Stambaugh (1987), Lustig and Verdelhan (2012)).
+We start by studying the dynamics of risk and return through a VAR because
+it is a convenient tool to document how volatility and expected returns respond
+dynamically to a volatility shock over time. We run a VAR at the monthly
+frequency with one lag of (log) realized variance, realized returns, and the priceto-earning ratio (CAPE from Robert Shiller’s website) and plot the impulse
+response function to trace out the effects of a variance shock. We choose the
+
+1632
+
+The Journal of FinanceR
+
+Figure 5. Dynamics of the risk-return trade-off. The ﬁgure plots the impulse response of the
+expected variance and expected return of the market portfolio for a shock to the realized variance.
+The x-axis is in years. The bottom panel gives the portfolio choice implications for a mean-variance
+investor who sets her risk exposure proportional to Et [Rt+1 ]/vart [Rt+1 ]. The units are percentage
+deviations from their average risk exposure. We compute impulse responses using a VAR of realized
+variance, realized returns, and the cyclically adjusted price-to-earnings ratio (CAPE) from Robert
+Shiller. We include two lags of each variable. Bootstrapped 95% conﬁdence bands are given in
+dashed lines. (Color ﬁgure can be viewed at wileyonlinelibrary.com)
+
+ordering of the variables so that the variance shock can contemporaneously
+affect realized returns and CAPE.
+Figure 5 plots the response to a one-standard-deviation expected variance
+shock. While expected variance spikes on impact, this shock dies out fairly
+quickly, consistent with variance being strongly mean-reverting. Expected returns, however, rise much less on impact but stay elevated for a longer period
+of time. Given the increase in variance but only small and persistent increase
+in expected return, the lower panel shows that it is optimal for the investor
+to reduce his portfolio exposure by 50% on impact because of an unfavorable
+
+Volatility-Managed Portfolios
+
+1633
+
+risk-return trade-off. The portfolio share is consistently below 1 for roughly 12
+months after the shock.
+The lower persistence of volatility shocks implies that the risk-return tradeoff initially deteriorates but gradually improves as volatility declines through
+a recession. Thus, our results are not in conﬂict with the evidence that risk
+premia are countercyclical. Instead, after a large market crash such as that in
+October 2008, our strategy initially gets out of the market to avoid an unfavorable risk-return trade-off, but captures much of the persistent increase in
+expected returns by buying back in when the volatility shock subsides.
+However, the estimated response of expected returns to a volatility shock
+should be read with caution, as return predictability regressions are poorly
+estimated. With this in mind, we also study the behavior of our strategy at
+lower frequencies. Speciﬁcally, we form portfolios as before, using weights proportional to monthly realized variance, but now we hold the position for T
+months before rebalancing. We then run our time-series alpha test at the same
+frequency. Letting ft→t+T be the cumulative factor excess returns from buying
+at the end of month T and holding until the end of month t + T , we run,
+c
+
+ft→t+T = α + β ft→t+T + t+T
+σ̂t2 ( ft+1 )
+
+(6)
+
+with nonoverlapping data. Results are in Figure 6. We show alphas and appraisal ratios for the market and the MVE portfolios based on the Fama-French
+three factors and momentum factor. Alphas are statistically signiﬁcant for
+longer holding periods but gradually decline in magnitude. For example, for
+the market portfolio, alphas are statistically different from zero (at the 10%
+conﬁdence level) for up to 18 months. This same pattern holds for the two MVE
+portfolios we consider.
+These results are broadly consistent with the VAR in that alphas decrease
+with horizon. However, empirically, volatility seems to be more persistent at
+moderate or long horizons than is implied by its very short-term dynamics. For
+example, the estimated VAR dynamics imply that volatility has a near-zero 12month autocorrelation, while the nonparametric estimate is larger than 0.2.
+This means the alphas decline more slowly than the VAR suggests.
+The economic content of the long-horizon alphas is similar to the monthly
+results. These results imply that, even at lower frequencies, there is a negative
+relation between variance and the price of risk (see Section III).
+G. Additional Analysis
+We conduct a number of additional robustness checks of our main result
+but leave the details to the Internet Appendix. We show that our strategy
+works for a credit-risk factor formed from excess corporate bond returns, that
+it works for international stock market indices, that it can be further improved
+through the use of more sophisticated models of variance forecasting, that it
+does not generate fatter left tails than the original factors or create option-like
+payoffs, and that it outperforms not only using alpha and Sharpe ratios but
+
+1634
+
+The Journal of FinanceR
+
+Figure 6. Results by re-balancing period. This ﬁgures plots alphas and appraisal ratios by
+re-balancing period given in years on the x-axis. We compute scaled portfolios using the inverse
+of monthly realized variance and plot the alphas and appraisal ratios for different rebalancing
+horizons. All numbers are annualized for ease of interpretation. The top two panels do this for
+the market return, the middle panels use the MVE portfolio formed from the Fama-French three
+factors, and the bottom panels add the momentum factor. We include 90% conﬁdence bands for
+alphas in dashed lines. (Color ﬁgure can be viewed at wileyonlinelibrary.com)
+
+also manipulation-proof measures of performance (Goetzmann et al. (2007)).
+We also ﬁnd that our volatility-managed factors are less exposed to volatility
+shocks than the original factors (ruling out explanations based on the variance
+risk premium), and cannot be explained by downside market risk (Ang, Chen,
+and Xing (2006), Lettau, Maggiori, and Weber (2014)), disaster risk, or jump
+risk.
+III. Theoretical Framework
+In this section, we provide a theoretical framework to interpret our ﬁndings.
+We start by making the intuitive point that our alphas are proportional to the
+covariance between variance and the factor price of risk. We then impose more
+structure to derive aggregate pricing implications.
+
+1635
+
+Volatility-Managed Portfolios
+
+We get cleaner formulas in continuous time. Consider a portfolio total value
+process Rt with expected excess return μt and conditional volatility σt (i.e.,
+dRt = (rt + μt )dt + σt dBt , where rt is the instantaneous risk-free rate). Construct the volatility-managed version of this return exactly as in equation (1),
+that is, dRtσ = rt dt + σc2 (dRt − rt dt), where c is a normalization constant. The
+t
+α of a time-series regression of the volatility-managed portfolio excess return
+dRtσ − rt dt on the original portfolio excess return dRt − rt dt is given by
+(7)
+
+α = E[dRtσ − rt dt]/dt − β E[dRt − rt dt]/dt.
+
+Using the fact that E[dRtσ − rt dt]/dt = cE[ σμ2t ], β = E[σc 2 ] , and cov( σμ2t , σt2 ) =
+t
+
+t
+
+t
+
+E[μt ] − E[ σμ2t ]E[σt2 ], we obtain a relation between alpha and the dynamics of
+t
+
+the price of risk μt /σt2 ,16
+
+α = −cov
+
+
+
+μt 2
+, σt
+σt2
+
+
+
+c
+[ 2] .
+E σt
+
+(8)
+
+Thus, our α is a direct measure of the comovement between the price of risk
+and variance. In the case in which expected returns and volatility move together, that is, μt = γ σt2 , we have α = 0. Intuitively, by avoiding high-volatility
+times you avoid risk, but if the risk-return trade-off is strong you also sacriﬁce
+expected returns, leaving the volatility timing strategy with zero alpha.
+In contrast, when expected returns are constant or independent of volatility,
+E[μt ]
+1
+2
+equation (8) implies α = c E[σ
+2 Jσ , where Jσ = (E[σt ]E[ 2 ] − 1) > 0 is a Jensen’s
+σt
+t ]
+inequality term that is increasing in the volatility of volatility. This is because
+the more volatility varies, the more variation there is in the price of risk that
+the portfolio can capture. Thus, the alpha of our strategy is increasing in the
+volatility of volatility and the unconditional compensation for risk.
+The proﬁtability of our strategy can also be recast in terms of the analysis
+in Jagannathan and Wang (1996) because we are testing a strategy with zero
+conditional alpha using an unconditional model.17 The above results provide
+an explicit mapping between volatility-managed alphas and the dynamics of
+the price of risk for an individual asset.
+A. The Aggregate Price of Risk
+While the above methodology applies to any return—even an individual
+stock—the results are only informative about the broader price of risk in the
+economy if applied to systematic sources of return variation. Intuitively, if a
+return is largely driven by idiosyncratic risk, then volatility timing will not be
+16 Formally, statements about the variance (and covariance) of a stochastic process in continuous
+
+time should be thought of as statements about the quadratic variation (or cross-variance) of these
+processes. It is exactly the fact that in continuous time the covariance between conditional means
+is of order dt2 that allows us to obtain cleaner formulas in continuous time.
+17 See also the Internet Appendix, where we show how to explicitly recover the strength of the
+conditional relationship between risk and return from our strategy’s alpha.
+
+1636
+
+The Journal of FinanceR
+
+informative about the broader price of risk in the economy.18 In this section we
+show how our volatility-managed portfolios, when applied to systematic risk
+factors, recover the component of the aggregate price of risk variation driven
+by volatility.
+Let dR = [dR1 , . . . , dRN ] be a vector of returns, with expected excess return
+μtR and covariance matrix tR. The empirical asset pricing literature shows
+that exposures to a few factors summarize expected return variation for a
+larger cross-section of assets and strategies captured by dRt . We formalize our
+interpretation of this literature as follows:
+ASSUMPTION 1: Let return factors dF = [dF1 , . . . , dFI ], with dynamics given
+by μt and t , span the unconditional mean-variance frontier for static portfolios of d R̃ = [dR; dFt ] and the conditional mean-variance frontier for dynamic
+portfolios of d R̃. Deﬁne the process t (γt ) as
+dt (γt )
+= −rt dt − γt (dFt − Et [dFt ]).
+t (γt )
+
+(9)
+
+Then there exists a constant price of risk vector γ u such that E[d(t (γ u)w R̃)] =
+0 holds for any static weights w, and there is a γt∗ process for which
+E[d(t (γt∗ )wt R̃)] = 0 holds for any dynamic weights wt .
+
+This assumption says that unconditional exposures to these factors contain
+all relevant information to price the static portfolios R, but one may also need
+information on the price of risk dynamics to properly price dynamic strategies
+of these assets.
+We focus on the case in which the factor covariance matrix is diagonal,
+t = diag([σ1,t . . . σ I,t ]) (i.e., factors are uncorrelated), which empirically is a
+good approximation of the factors we study.19 In fact, many of the factors are
+constructed to be nearly orthogonal through double-sorting procedures. Given
+this structure, we can show how our strategy alphas allow one to recover the
+component of the price of risk variation driven by volatility.
+i,t ]
+∗
+IMPLICATION 1: The factor i price of risk is γi,t
+= μσ i,t2 and γiu = E[μ
+. Decompose
+E[σ 2 ]
+i,t
+
+i,t
+
+σ
+factor excess returns as μt = bt + ζt , where we assume E[ζt |t ] = ζt . Let γi,t
+=
+2
+∗
+E[γi,t |σi,t ] be the component of the price of risk variation driven by volatility,
+and αi be factor i’s volatility-managed alpha. Then
+
+ [ ]
+2
+αi −1 E σi,t
+σ
+u
+−1 ,
+(10)
+γi,t = γi + Jσ,i
+2
+ci
+σi,t
+
+and the process t (γtσ ) is a valid Stochastic Discount Factor (SDF) for d R̃t and
+volatility-managed strategies w(t ), that is, E[d(t (γtσ )w(t ) R̃t )] = 0.20
+18 See the Internet Appendix for an example.
+
+19 The Internet Appendix addresses the case in which factors are correlated.
+
+20 Formally, γ σ = [γ σ . . . γ σ ], and the strategies w( ) must be adapted to the ﬁltration genert
+t
+1,t
+I,t
+∫T
+ated by t , self-ﬁnancing, and satisfy E[ 0 ||w(t )t ||2 dt] < ∞ (see Dufﬁe (2010)).
+
+Volatility-Managed Portfolios
+
+1637
+
+Equation (10) shows how volatility-managed portfolio alphas allow us to
+reconstruct the variation in the price of risk due to volatility. The volatilityimplied price of risk has two terms. The term γ u is the unconditional price of
+risk, the price of risk that prices static portfolios of returns dRt . It is the term
+typically recovered in cross-sectional tests. The second is due to volatility. It
+increases the price of risk when volatility is low, with this sensitivity increasing
+in our strategy alpha. Thus, volatility-managed alphas allow us to answer the
+question of how much compensation for risk moves as volatility moves.
+Tracking variation in the price of risk due to volatility can be important
+for pricing. Speciﬁcally, (γtσ ) can price not only the original assets unconditionally, but also volatility-based strategies of these assets.21 Thus, volatilitymanaged portfolios allow us to get closer to the true price of risk process γt∗ ,
+and as a result, closer to the unconditional mean-variance frontier, a ﬁrst-order
+economic object. In the Internet Appendix, we show how one can implement the
+risk adjustment embedded in model (γtσ ) by adding our volatility-managed
+portfolios as a factor.
+We ﬁnish this section by providing a measure of how “close” (γtσ ) gets
+to (γt∗ ) relative to the constant price of risk model (γ u). Recognizing that
+E[(d(γta ) − d(γtb))dRt ] is the pricing error associated with using model b
+when prices are consistent with a, it follows that the volatility of the difference
+between models, Db−a ≡ V ar (d(γta ) − d(γtb)), provides an upper bound on
+pricing error Sharpe ratios (see Hansen and Jagannathan (1991)). It is thus a
+natural measure of distance. For the single-factor case, we obtain
+( α )2 [ ]
+E σt2 Jσ−1 ,
+(11)
+Du−σ =
+c
+Du−ζ =
+
+Du−∗ =
+
+( α )2
+c
+
+V ar(ζt )
+[ ],
+E σt2
+
+[ ]
+V ar(ζt )
+(Jσ + 1).
+E σt2 Jσ−1 +
+E[σt2 ]
+
+(12)
+
+(13)
+
+Equation (11) shows that the distance between models u and σ grows with
+alpha. In particular, it implies that the maximum excess Sharpe ratio decreases
+proportionally with the strategy alpha when you move from the constant price
+of risk model u to the model σ that incorporates variation in the price of risk
+driven by volatility. This is similar in spirit to Nagel and Singleton (2011), who
+derive general optimal managed portfolios based on conditioning information
+to test unconditional models against. Analogously, equation (12) accounts for
+21 For example, Boguth et al. (2011) argue that a large set of mutual fund strategies involve
+substantial volatility timing. Our volatility-managed portfolio provides a straightforward method
+to risk-adjust these strategies. This assumes of course that investors do indeed understand the
+large gain from volatility timing and nevertheless ﬁnd it optimal not to trade.
+
+1638
+
+The Journal of FinanceR
+
+variation in the expected return signal ζt but ignores volatility information.
+Equation (13) shows the total difference between the constant price of risk
+model (u) and the true (∗) model.
+To have a sense of magnitudes, we assume that the market portfolio satisﬁes
+Assumption 1 and plug in numbers for the market portfolio. Notice that Du−σ
+is the volatility-managed market’s appraisal ratio squared, which measures
+the expansion of the MVE frontier for the managed strategy. We measure all
+the quantities in (11) to (13) but V ar(ζt ), which is tightly related to return
+predictability R2 . We use the estimate from Campbell and Thompson (2008),
+who obtain a number around 0.06.22 We obtain Du−σ = 0.332 = 0.11, Du−ζ =
+0.06, and Du−∗ = 0.11 + 0.06 ∗ 3.2 = 0.29. Accounting for only time-variation
+in volatility can reduce squared pricing error Sharpe ratios by approximately
+0.11/0.29 = 38%, compared with 0.06/0.29 = 21% for time-variation in expected
+returns, with the large residual being due to the multiplicative interaction
+between them.
+The above results show that accounting for time-variation in the price of risk
+driven by volatility seems at least as important as, and perhaps even more
+important than, accounting for variation in the price of risk driven by expected
+returns.
+IV. General Equilibrium Implications
+We start this section by showing that the high Sharpe ratios of our volatilitymanaged portfolios pose a new challenge to leading macroﬁnance models. We
+then discuss potential economic mechanisms that could generate our ﬁndings.
+A. Macroﬁnance Models
+Our empirical ﬁndings pose a challenge to macroﬁnance models that is statistically sharper than standard risk-return regressions. In fact, many equilibrium asset pricing models have largely ignored the risk-return trade-off
+literature, which runs regressions of future returns on volatility, because the
+results of that literature are ambiguous and statistically weak (see Glosten, Jagannathan, and Runkle (1993), Whitelaw (1994), Lettau and Ludvigson (2003),
+Lundblad (2007)).23
+We assess the statistical power of our approach by studying the predictions
+of four leading equilibrium asset pricing models: the habits model (Campbell
+and Cochrane (1999)), long-run risk model (Bansal, Kiku, and Yaron (2012)),
+time-varying rare disasters model (Wachter (2013)), and intermediary-based
+asset pricing model (He and Krishnamurthy (2013)). Speciﬁcally, we calibrate
+each model according to the original papers and simulate stock market return
+data for a sample of equal length to our historical sample.
+22 A range in this literature would put an upper bound at around 13% for the R2 at the yearly
+
+horizon; see Kelly and Pruitt (2013). Notice also that V ar(ζt ) is actually below V ar(μt ), so these
+are strong upper bounds.
+23 See also related work by Bollerslev et al. (2016) and Tang and Whitelaw (2011).
+
+Volatility-Managed Portfolios
+
+1639
+
+Figure 7. Equilibrium models and volatility timing. The ﬁgure plots the distribution of moments recovered from 1,000 simulations of 100-year samples for the different equilibrium models.
+The dashed line shows the point estimate in the historical sample. The left panels show the alpha
+of the volatility-managed strategy, the middle panels the appraisal ratio of the volatility-managed
+strategy, and the right panels the slope coefﬁcient in a predictive regression of the market excess return on the previous month’s realized variance. Moments are recovered by replicating in
+the simulations exactly the same exercise as in the data. In the ﬁrst row we show the habits
+model of Campbell and Cochrane (1999), in the second row the rare disaster model of Wachter
+(2013), in the third row the long-run risk model of Bansal and Yaron (2004), and in the last row
+the intermediary-based model of He and Krishnamurthy (2013). Simulations are done using the
+original papers’ parameter calibrations. (Color ﬁgure can be viewed at wileyonlinelibrary.com)
+
+We ﬁrst run a standard risk-return trade-off regression for the market portfolio
+2
++ t+1
+Rmkt,t+1 − R f ,t+1 = a + γ σ̂mkt,t
+
+(14)
+
+in the data and in simulated data from each model. Results are shown in Figure
+7, which provides a histogram of the estimated coefﬁcient γ across simulations
+of each model and the actual point estimate from this regression in the data.
+We next construct our volatility-managed portfolios, exactly as described in
+Section I.B. We compute alphas and appraisal ratios in the model-simulated
+data and again compare to the actual data for the market portfolio.
+The contrast between our approach and the return-forecasting approach is
+striking. All models frequently generate return histories consistent with the
+weak risk-return trade-off estimated in the data. However, no model comes
+close to reproducing our ﬁndings in terms of alphas or appraisal ratios. For
+example, Bansal and Yaron (2004) match the data in only 0.2% of the simulated samples. The other three models do even worse in matching the alpha we
+
+1640
+
+The Journal of FinanceR
+
+observe in the data. These results indicate that our volatility-managed portfolios pose a fresh challenge to these models.
+In these models, alphas are either near zero or negative on average. From
+equation (8), this is equivalent to cov(γt , σt2 ) ≥ 0, where γt = Et [Rt+1 ]/σt2 can be
+thought of as the market effective risk aversion. The models generally feature
+a weakly positive covariance between effective risk aversion and variance because they typically have risk aversion either increasing or staying constant
+in bad economic times when volatility is also high. The positive alphas we
+document empirically imply that this covariance is negative.
+B. What Could Explain Our Results?
+A deﬁnitive answer to this question is beyond the scope of this paper and left
+to future work. Nevertheless, we consider a few possibilities.
+The easiest, but least plausible, explanation is that investors’ willingness to
+take risk is negatively related to volatility. That is, investors choose not to time
+volatility because they are less risk-averse during high-volatility periods. A
+more nuanced explanation is that nontraded wealth becomes less volatile when
+ﬁnancial market volatility is high. We also ﬁnd this explanation unappealing,
+as volatility tends to be high in recessions when macroeconomic uncertainty
+is high. In the context of representative agent models, a plausible explanation
+is that volatility driven by learning about structural parameters might be
+priced differently than volatility driven by standard forms of risk (e.g., Veronesi
+(2000)).
+One intuitive explanation for our results is that some investors are slow to
+trade. This could explain why a sharp increase in realized volatility does not
+immediately lead to a higher expected return in the data. This explanation is
+also consistent with our impulse responses where expected returns rise slowly
+but the true expected volatility process rises and mean-reverts quickly in response to a variance shock. In line with this view, Nagel et al. (2016) ﬁnd that
+higher income households, which may be more sophisticated investors, seem
+to sell more quickly in response to increases in volatility in the 2008 crisis.
+A ﬁnal possibility is that the composition of shocks changes with volatility.
+In a companion paper (Moreira and Muir (2016)), we show that long-horizon
+investors may ﬁnd volatility timing somewhat less beneﬁcial if increases in
+volatility are driven by increases in discount rate volatility. That is, increases
+in volatility are due to an increase in the volatility of shocks that eventually
+mean revert. Intuitively, increases in discount rate volatility increase the likelihood that an investor wakes up poorer tomorrow, but have no effect on the
+distribution of her wealth in the very long run. Quantitatively, Moreira and
+Muir (2016) show that, because discount rate shocks seem to be very persistent
+in the data, even in the extreme case in which volatility is completely driven
+by discount rate volatility, investors with plausible investment horizons can
+still beneﬁt somewhat from volatility timing. Thus, variation in the composition of shocks can reduce, but not solve, the puzzle. Furthermore, Moreira
+and Muir (2016) leave open the challenge of developing a plausible equilibrium
+
+Volatility-Managed Portfolios
+
+1641
+
+mechanism whereby discount rate volatility is not tightly related to the level
+of discount rates.
+We acknowledge that the above explanations need to be considered in more
+detail and analyzed quantitatively before we can evaluate their success. We
+leave this task to future work.
+V. Conclusion
+Volatility-managed portfolios offer large risk-adjusted returns and are easy
+to implement in real time. Because volatility does not strongly forecast future
+returns, factor Sharpe ratios are improved by lowering risk exposure when
+volatility is high and increasing risk exposure when volatility is low. Our strategy runs contrary to conventional wisdom because it takes relatively less risk
+in recessions and crises yet still earns high average returns. We analyze both
+portfolio choice and general equilibrium implications of our ﬁndings. We ﬁnd
+utility gains from volatility timing for mean-variance investors of around 65%,
+which is much larger than utility gains from timing expected returns. Furthermore, we show that our strategy performance is informative about the
+dynamics of effective risk-aversion, a key object for theories of time-varying
+risk premia.
+Initial submission: April 6, 2016; Accepted: August 30, 2016
+Editors: Bruno Biais, Michael R. Roberts, and Kenneth J. Singleton
+
+REFERENCES
+Ang, Andrew, 2014, Asset Management: A Systematic Approach to Factor Investing (Oxford University Press, Oxford, United Kingdom).
+Ang, Andrew, Joseph Chen, and Yuhang Xing, 2006, Downside risk, Review of Financial Studies
+19, 1191–1239.
+Asness, Clifford S., Andrea Frazzini, and Lasse H. Pedersen, 2012, Leverage aversion and risk
+parity, Financial Analysts Journal 68, 47–59.
+Bansal, Ravi, Dana Kiku, and Amir Yaron, 2012, An empirical evaluation of the long-run risks
+model for asset prices, Critical Finance Review 1, 183–221.
+Bansal, Ravi, and Amir Yaron, 2004, Risks for the long run: A potential resolution of asset pricing
+puzzles, Journal of Finance 59, 1481–1509.
+Barroso, Pedro, and Pedro Santa-Clara, 2015, Momentum has its moments, Journal of Financial
+Economics 116, 111–120.
+Black, Fischer, 1972, Capital market equilibrium with restricted borrowing, Journal of Business
+45, 444–455.
+Black, Fischer, Michael C. Jensen, and Myron S. Scholes, 1972, The capital asset pricing model:
+Some empirical tests, in Michael Jensen, ed.: Studies in the Theory of Capital Markets (Praeger,
+Santa Barbara, CA).
+Boguth, Oliver, Murray Carlson, Adlai Fisher, and Mikhail Simutin, 2011, Conditional risk and
+performance evaluation: Volatility timing, overconditioning, and new estimates of momentum
+alphas, Journal of Financial Economics 102, 363–389.
+Bollerslev, Tim, Benjamin Hood, John Huss, and Lasse H. Pedersen, 2016, Risk everywhere:
+Modeling and managing volatility, Working paper, SSRN.
+Campbell, John Y., and John Cochrane, 1999, By force of habit: A consumption-based explanation
+of aggregate stock market behavior, Journal of Political Economy 107, 205–251.
+
+1642
+
+The Journal of FinanceR
+
+Campbell, John Y., and Samuel B. Thompson, 2008, Predicting excess stock returns out
+of sample: Can anything beat the historical average? Review of Financial Studies 21,
+1509–1531.
+Constantinides, George M., Jens Carsten Jackwerth, and Alexi Savov, 2013, The puzzle of index
+option returns, Review of Asset Pricing Studies 3, 229–257.
+Daniel, Kent, Robert J. Hodrick, and Zhongjin Lu, 2015, The carry trade: Risks and drawdowns,
+Working paper, National Bureau of Economic Research.
+Daniel, Kent, and Tobias J Moskowitz, 2016, Momentum crashes, Journal of Financial Economics
+122, 221–247.
+Dufﬁe, Darrell, 2010, Dynamic Asset Pricing Theory (Princeton University Press, Princeton, NJ).
+Fama, Eugene F., and Kenneth R. French, 1989, Business conditions and expected returns on
+stocks and bonds, Journal of Financial Economics 25, 23–49.
+Fama, Eugene F., and Kenneth R. French, 1996, Multifactor explanations of asset pricing anomalies, Journal of Finance 51, 55–84.
+Fama, Eugene F., and Kenneth R. French, 2015, A ﬁve-factor asset pricing model, Journal of
+Financial Economics 116, 1–22.
+Fleming, Jeff, Chris Kirby, and Barbara Ostdiek, 2001, The economic value of volatility timing,
+Journal of Finance 56, 329–352.
+Fleming, Jeff, Chris Kirby, and Barbara Ostdiek, 2003, The economic value of volatility timing
+using “realized” volatility, Journal of Financial Economics 67, 473–509.
+Frazzini, Andrea, Ronen Israel, and Tobias Moskowitz, 2015, Trading costs of asset pricing anomalies, Working paper, AQR Capital Management.
+Frazzini, Andrea, and Lasse H. Pedersen, 2012, Embedded leverage, Working paper, National
+Bureau of Economic Research.
+Frazzini, Andrea, and Lasse H. Pedersen, 2014, Betting against beta, Journal of Financial Economics 111, 1–25.
+French, Kenneth R., G. William Schwert, and Robert F. Stambaugh, 1987, Expected stock returns
+and volatility, Journal of Financial Economics 19, 3–29.
+Glosten, Lawrence R., Ravi Jagannathan, and David E. Runkle, 1993, On the relation between the
+expected value and the volatility of the nominal excess return on stocks, Journal of Finance
+48, 1779–1801.
+Goetzmann, William, Jonathan Ingersoll, Matthew Spiegel, and Ivo Welch, 2007, Portfolio performance manipulation and manipulation-proof performance measures, Review of Financial
+Studies 20, 1503–1546.
+Hansen, Lars Peter, and Ravi Jagannathan, 1991, Implications of security market data for models
+of dynamic economies, Journal of Political Economy 99, 225–262.
+He, Zhiguo, and Arvind Krishnamurthy, 2013, Intermediary asset pricing, The American Economic
+Review 103, 732–770.
+Hou, Kewei, Chen Xue, and Lu Zhang, 2014, Digesting anomalies: An investment approach, Review
+of Financial Studies 28, 650–705.
+Jagannathan, Ravi, and Zhenyu Wang, 1996, The conditional CAPM and the cross-section of
+expected returns, Journal of Finance 51, 3–53.
+Kelly, Bryan, and Seth Pruitt, 2013, Market expectations in the cross-section of present values,
+Journal of Finance 68, 1721–1756.
+Lettau, Martin, and Sydney Ludvigson, 2003, Measuring and modeling variation in the riskreturn tradeoff, in Yacine Ait-Sahalia and Lars Peter Hansen, eds.: Handbook of Financial
+Econometrics (Elsevier, Amsterdam, Netherlands).
+Lettau, Martin, Matteo Maggiori, and Michael Weber, 2014, Conditional risk premia in currency
+markets and other asset classes, Journal of Financial Economics 114, 197–225.
+Lundblad, Christian, 2007, The risk return tradeoff in the long-run: 1836–2003, Journal of Financial Economics 85, 123–150.
+Lustig, Hanno, Nikolai Roussanov, and Adrien Verdelhan, 2011, Common risk factors in currency
+markets, Review of Financial Studies 24, 3731–3777.
+Lustig, Hanno, and Adrien Verdelhan, 2012, Business cycle variation in the risk-return trade-off,
+Journal of Monetary Economics 59, Supplement, S35–S49.
+
+Volatility-Managed Portfolios
+
+1643
+
+Martin, Ian, 2016, What is the expected return on the market? Quarterly Journal of Economics
+132, 367–433.
+Moreira, Alan, and Tyler Muir, 2016, Should long-term investors time volatility? Working paper,
+SSRN.
+Muir, Tyler, 2016, Financial crises and risk premia, Quarterly Journal of Economics (forthcoming).
+Nagel, Stefan, Daniel Reck, Jeffrey Hoopes, Patrick Langetieg, Joel Slemrod, and Bryan Stuart,
+2016, Who sold during the crash of 2008-9? Evidence from tax return data on daily sales of
+stock, Working paper, National Bureau of Economic Research.
+Nagel, Stefan, and Kenneth J. Singleton, 2011, Estimation and evaluation of conditional asset
+pricing models, Journal of Finance 66, 873–909.
+Novy-Marx, Robert, 2013, The other side of value: The gross proﬁtability premium, Journal of
+Financial Economics 108, 1–28.
+Tang, Yi, and Robert F. Whitelaw, 2011, Time-varying Sharpe ratios and market timing, Quarterly
+Journal of Finance 1, 465–493.
+Veronesi, Pietro, 2000, How does information quality affect stock returns? Journal of Finance 55,
+807–837.
+Wachter, Jessica A., 2013, Can time-varying risk of rare disasters explain aggregate stock market
+volatility? Journal of Finance 68, 987–1035.
+Whitelaw, Robert F., 1994, Time variations and covariations in the expectation and volatility of
+stock market returns, Journal of Finance 49, 515–541.
+
+Supporting Information
+Additional Supporting Information may be found in the online version of this
+article at the publisher’s website:
+Appendix S1: Internet Appendix.
+
+1644
+
+The Journal of FinanceR
+
+

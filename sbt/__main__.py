@@ -5,7 +5,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
-from nautilus_trader.analysis import create_tearsheet
 from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.model.currencies import USDT
@@ -14,9 +13,8 @@ from nautilus_trader.model.enums import AccountType, OmsType
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money, Price, Quantity
 
-from .stats import CalmarRatio, RunConfig
-from .strategies.bitcoin_intraday_momentum import BitcoinIntradayMomentum, BitcoinIntradayMomentumConfig
-from .utils import make_perpetual, parse_interval
+from .stats import AnnualizedReturn, CalmarRatio, RunConfig
+from .utils import make_perpetual, parse_interval, get_strategy_class
 
 
 def load_bars(df: pd.DataFrame, bar_type: BarType) -> list[Bar]:
@@ -114,7 +112,9 @@ if __name__ == "__main__":
 
     bar_type = BarType.from_str(f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL")
 
-    strategy_config = BitcoinIntradayMomentumConfig(
+    StrategyClass, ConfigClass = get_strategy_class(args.strategy)
+
+    strategy_config = ConfigClass(
         instrument_id=instrument.id,
         bar_type=bar_type,
         capital=capital,
@@ -142,62 +142,31 @@ if __name__ == "__main__":
         exit(1)
 
     engine.portfolio.analyzer.register_statistic(CalmarRatio())
-    engine.portfolio.analyzer.register_statistic(
-        RunConfig(
-            pair=sym,
-            exchange=ex,
-            interval=interval_ccxt,
-            capital=f"${capital}",
-            leverage=f"{leverage_val}x",
-            maker_fee=f"{float(instrument.maker_fee) * 100:.4f}%",
-            taker_fee=f"{float(instrument.taker_fee) * 100:.4f}%",
-            onfh_close_time=strategy_config.onfh_close_time,
-            vol_scaling=str(strategy_config.vol_scaling),
-            rv_lookback=str(strategy_config.rv_lookback),
-            max_leverage=f"{strategy_config.max_leverage}x",
-        )
-    )
+    engine.portfolio.analyzer.register_statistic(AnnualizedReturn())
+    run_params = {
+        "pair": sym,
+        "exchange": ex,
+        "interval": interval_ccxt,
+        "capital": f"${capital}",
+        "leverage": f"{leverage_val}x",
+        "maker_fee": f"{float(instrument.maker_fee) :.4f}%",
+        "taker_fee": f"{float(instrument.taker_fee) :.4f}%",
+        "strategy": args.strategy,
+    }
+    engine.portfolio.analyzer.register_statistic(RunConfig(**run_params))
 
-    strategy = BitcoinIntradayMomentum(config=strategy_config)
+    strategy = StrategyClass(config=strategy_config)
     engine.add_strategy(strategy)
 
     print("Running backtest...")
     engine.run()
 
-    print("\n========== BACKTEST COMPLETE ==========")
+    from .report import print_report
 
-    stats_pnls = engine.portfolio.analyzer.get_performance_stats_pnls()
-    stats_returns = engine.portfolio.analyzer.get_performance_stats_returns()
-    stats_general = engine.portfolio.analyzer.get_performance_stats_general()
-
-    print("\n--- Portfolio Performance ---")
-    for k, v in {**stats_pnls, **stats_returns, **stats_general}.items():
-        print(f"  {k}: {v}")
-
-    positions_report = engine.trader.generate_positions_report()
-    print(f"\n--- Positions Report ({len(positions_report)} rows) ---")
-    print(positions_report.to_string(max_rows=20))
-
-    fills_report = engine.trader.generate_fills_report()
-    print(f"\n--- Fills Report ({len(fills_report)} rows) ---")
-    print(fills_report.to_string(max_rows=20))
-
-    orders_report = engine.trader.generate_orders_report()
-    print(f"\n--- Orders Report ({len(orders_report)} rows) ---")
-    print(orders_report.to_string(max_rows=20))
-
-    account_report = engine.trader.generate_account_report(venue)
-    print(f"\n--- Account Report ({len(account_report)} rows) ---")
-    print(account_report.to_string(max_rows=10))
-
-    run_id = engine.run_id
-    tearsheet_path = f"reports/tearsheet_{run_id}.html"
-    print(f"\n--- Generating tearsheet ({run_id}) ---")
-    create_tearsheet(
+    strat_label = args.strategy.replace("_", " ").title()
+    print_report(
         engine,
-        output_path=tearsheet_path,
-        title=f"BTC Intraday Momentum — {ex} {sym} {interval_ccxt}",
+        venue,
+        title=f"{strat_label} — {ex} {sym} {interval_ccxt}",
+        pair=sym,
     )
-    print(f"Tearsheet saved to {tearsheet_path}")
-
-    print("\n========== DONE ==========")

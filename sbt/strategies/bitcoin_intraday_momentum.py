@@ -9,22 +9,24 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
+from ..volatility import VolatilityScaler
+
 
 class BitcoinIntradayMomentumConfig(StrategyConfig, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
     capital: Decimal
-    leverage: float = 1.0
+    leverage: float
 
     backtest_start_date: str = "2020-01-01"
 
-    onfh_close_time: str = "09:30"
+    onfh_close_time: str = "08:00"
     slh_open_time: str = "16:00"
     slh_close_time: str = "16:30"
 
     vol_scaling: bool = True
-    rv_lookback: int = 22
-    max_leverage: float = 2.0
+    rv_lookback: int = 30
+    max_leverage: float = 0.0
 
 
 class BitcoinIntradayMomentum(Strategy):
@@ -42,9 +44,10 @@ class BitcoinIntradayMomentum(Strategy):
         self.current_position_side: Optional[OrderSide] = None
         self._open_qty: Optional[Quantity] = None
 
-        self._daily_returns: list[float] = []
-        self._rv_history: list[float] = []
-        self._current_weight: float = 1.0
+        self._vol_scaler = VolatilityScaler(
+            rv_lookback=config.rv_lookback,
+            max_leverage=config.max_leverage,
+        ) if config.vol_scaling else None
 
     def on_start(self) -> None:
         self.subscribe_bars(self.config.bar_type)
@@ -71,17 +74,14 @@ class BitcoinIntradayMomentum(Strategy):
         if time_str == "17:00":
             self.close_positions()
             close_val = Decimal(bar.close.as_double())
-            if self.config.vol_scaling:
-                if self.prev_close is not None:
-                    daily_ret = float(close_val / self.prev_close) - 1.0
-                    self._daily_returns.append(daily_ret)
-            self.prev_close = close_val
-
-            if self.config.vol_scaling:
+            if self.config.vol_scaling and self.prev_close is not None and self._vol_scaler is not None:
+                daily_ret = float(close_val / self.prev_close) - 1.0
+                self._vol_scaler.add_return(daily_ret)
                 dt_today = dt_est.date()
                 dt_tomorrow = dt_today + pd.Timedelta(days=1)
-                if dt_tomorrow.month != dt_today.month and len(self._daily_returns) >= self.config.rv_lookback:
-                    self._rebalance()
+                if dt_tomorrow.month != dt_today.month:
+                    self._vol_scaler.rebalance(dt_tomorrow.month)
+            self.prev_close = close_val
 
     def evaluate_signal_and_trade(self, price: Decimal) -> None:
         if self.r_onfh is None or self.r_slh is None:
@@ -93,16 +93,17 @@ class BitcoinIntradayMomentum(Strategy):
             self._open_trade(OrderSide.BUY, price)
 
     def close_positions(self) -> None:
-        if self.current_position_side == OrderSide.BUY:
-            self._close_trade(OrderSide.SELL)
-        elif self.current_position_side == OrderSide.SELL:
-            self._close_trade(OrderSide.BUY)
+        # if self.current_position_side == OrderSide.BUY:
+            # self._close_trade(OrderSide.BUY)
+        # elif self.current_position_side == OrderSide.SELL:
+        self._close_trade(self.current_position_side)
 
         self.current_position_side = None
         self._open_qty = None
 
     def _open_trade(self, order_side: OrderSide, price: Decimal) -> None:
-        notional = self.config.capital * Decimal(self.config.leverage) * Decimal(self._current_weight)
+        weight = Decimal(self._vol_scaler.weight) if self._vol_scaler is not None else Decimal(1.0)
+        notional = self.config.capital * Decimal(self.config.leverage) * weight
         raw_size = notional / price
         self._open_qty = Quantity(round(float(raw_size), 3), precision=3)
         order = self.order_factory.market(
@@ -123,8 +124,4 @@ class BitcoinIntradayMomentum(Strategy):
         )
         self.submit_order(order)
 
-    def _rebalance(self) -> None:
-        rv = sum(r * r for r in self._daily_returns[-self.config.rv_lookback:])
-        self._rv_history.append(rv)
-        c = sum(self._rv_history) / len(self._rv_history)
-        self._current_weight = min(self.config.max_leverage, c / rv) if rv > 0 else self.config.max_leverage
+

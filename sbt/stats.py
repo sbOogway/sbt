@@ -19,6 +19,17 @@ class CalmarRatio(PortfolioStatistic):
         return float(ann_return / abs(max_dd))
 
 
+class AnnualizedReturn(PortfolioStatistic):
+    def calculate_from_returns(self, returns: pd.Series) -> float | None:
+        if not self._check_valid_returns(returns):
+            return None
+        daily = self._downsample_to_daily_bins(returns)
+        if len(daily) < 2:
+            return None
+        ann_return = float(daily.mean() * 252)
+        return ann_return
+
+
 class RunConfig(PortfolioStatistic):
     def __init__(self, **kwargs: str) -> None:
         self._kwargs = kwargs

@@ -1,0 +1,39 @@
+[run]
+exchange = "BINANCE"
+symbol = "BTC/USDT"
+interval = "5m"
+capital = 1000
+leverage = 1.0
+start = "2018-01-01"
+maker_fee = 0.0
+taker_fee = 0.0002
+
+[strategy.bitcoin_intraday_momentum]
+onfh_close_time = "08:00"
+slh_open_time = "16:00"
+slh_close_time = "16:30"
+vol_scaling = false
+rv_lookback = 30
+max_leverage = 2.0
+
+[strategy.glucksmann]
+bb_period = 20
+bb_std = 2.0
+vol_fast_period = 50
+vol_slow_period = 200
+sma_fast_period = 20
+sma_mid_period = 50
+sma_slow_period = 100
+sma_veryslow_period = 200
+vli_fast_period = 200
+vli_slow_period = 1000
+enable_short = true
+
+[strategy.orb]
+orb_period = 12
+atr_period = 14
+atr_stop_multiple = 0.5
+risk_per_trade = 0.01
+vol_scaling = true
+rv_lookback = 22
+max_leverage = 2.0
