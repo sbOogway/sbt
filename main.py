@@ -1,19 +1,21 @@
-import pandas as pd
-from datetime import datetime, timezone
+import argparse
+import glob
 from decimal import Decimal
 from typing import Optional
 
-from nautilus_trader.config import StrategyConfig
-from nautilus_trader.trading.strategy import Strategy
-from nautilus_trader.model.data import Bar, BarType
-from nautilus_trader.model.enums import OrderSide, OmsType, AccountType
-from nautilus_trader.model.identifiers import InstrumentId, Venue
-from nautilus_trader.model.currencies import USD, USDT
-from nautilus_trader.model.objects import Money, Price, Quantity
-from nautilus_trader.core.datetime import dt_to_unix_nanos
+import pandas as pd
+from nautilus_trader.analysis import create_tearsheet
 from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.test_kit.providers import TestInstrumentProvider
-from nautilus_trader.analysis import ReportProvider, create_tearsheet
+from nautilus_trader.config import StrategyConfig
+from nautilus_trader.core.datetime import dt_to_unix_nanos
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.currencies import BTC, USDT
+from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.enums import AccountType, OmsType, OrderSide
+from nautilus_trader.model.identifiers import InstrumentId, Venue, Symbol
+from nautilus_trader.model.instruments import CryptoPerpetual
+from nautilus_trader.model.objects import Money, Price, Quantity
+from nautilus_trader.trading.strategy import Strategy
 
 # ---------------------------------------------------------
 # Strategy Configuration
@@ -121,63 +123,135 @@ class BitcoinIntradayMomentum(Strategy):
         self.submit_order(order)
 
 # ---------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------
+
+def make_perpetual(venue_name: str, symbol_str: str) -> CryptoPerpetual:
+    raw = symbol_str.replace("/", "")
+    inst_id = InstrumentId(symbol=Symbol(f"{raw}-PERP"), venue=Venue(venue_name))
+    return CryptoPerpetual(
+        instrument_id=inst_id,
+        raw_symbol=Symbol(raw),
+        base_currency=BTC,
+        quote_currency=USDT,
+        settlement_currency=USDT,
+        is_inverse=False,
+        price_precision=1,
+        price_increment=Price.from_str("0.1"),
+        size_precision=3,
+        size_increment=Quantity.from_str("0.001"),
+        max_quantity=Quantity.from_str("1000.000"),
+        min_quantity=Quantity.from_str("0.001"),
+        max_notional=None,
+        min_notional=Money(10.00, USDT),
+        max_price=Price.from_str("999999.0"),
+        min_price=Price.from_str("0.1"),
+        margin_init=Decimal("0.0500"),
+        margin_maint=Decimal("0.0250"),
+        maker_fee=Decimal("0.000000"),
+        taker_fee=Decimal("0.000000"),
+        ts_event=0,
+        ts_init=0,
+    )
+
+
+_INTERVAL_MAP = {
+    "1m": "1-MINUTE", "3m": "3-MINUTE", "5m": "5-MINUTE", "15m": "15-MINUTE",
+    "30m": "30-MINUTE", "1h": "1-HOUR", "2h": "2-HOUR", "4h": "4-HOUR",
+    "6h": "6-HOUR", "8h": "8-HOUR", "12h": "12-HOUR", "1d": "1-DAY",
+    "1w": "1-WEEK",
+}
+
+
+def parse_interval(interval: str) -> str:
+    result = _INTERVAL_MAP.get(interval)
+    if result is None:
+        raise ValueError(f"Unknown interval: {interval}")
+    return result
+
+
+# ---------------------------------------------------------
 # Backtest Initialization Engine & Data Loading
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    
+
+    parser = argparse.ArgumentParser(description="Run BTC intraday momentum backtest")
+    parser.add_argument("--feather", help="Path to feather file (auto-detect if omitted)")
+    parser.add_argument("--exchange", default="BINANCE", help="Venue/exchange name (default: BINANCE)")
+    parser.add_argument("--symbol", default="BTC/USDT", help="Trading pair (default: BTC/USDT)")
+    parser.add_argument("--interval", default="5m", help="Candle interval (default: 5m)")
+    parser.add_argument("--capital", default="1000", help="Starting capital in USDT (default: 1000)")
+    parser.add_argument("--leverage", default="1.0", help="Leverage (default: 1.0)")
+    parser.add_argument("--start", default="2020-01-01", help="Backtest start date (default: 2020-01-01)")
+    args = parser.parse_args()
+
+    venue = Venue(args.exchange)
+    raw_symbol = args.symbol.replace("/", "")
+    interval_ccxt = args.interval
+    interval_nt = parse_interval(interval_ccxt)
+    capital = Decimal(args.capital)
+    leverage = float(args.leverage)
+
     # 1. Initialize Engine
     engine = BacktestEngine(config=BacktestEngineConfig())
-    
+
     # 2. Add Venue and Account Structure
-    venue = Venue("BINANCE")
     engine.add_venue(
         venue=venue,
         oms_type=OmsType.NETTING,
         account_type=AccountType.MARGIN,
         base_currency=USDT,
-        starting_balances=[Money(1_000, USDT)],
+        starting_balances=[Money(capital, USDT)],
     )
-    
-    # 3. Setup Instrument (Mock representation of BTC/USD)
-    BTCUSD = TestInstrumentProvider.btcusdt_perp_binance()
-    engine.add_instrument(BTCUSD)
-    
-    # 4. Define the BarType (needed for both strategy config and data loading)
-    bar_type = BarType.from_str(f"{BTCUSD.id.value}-5-MINUTE-LAST-EXTERNAL")
-    
+
+    # 3. Setup Instrument
+    instrument = make_perpetual(args.exchange, args.symbol)
+    engine.add_instrument(instrument)
+
+    # 4. Define the BarType
+    bar_type = BarType.from_str(f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL")
+
     # 5. Create Strategy Configuration
     strategy_config = BitcoinIntradayMomentumConfig(
-        instrument_id=BTCUSD.id,
+        instrument_id=instrument.id,
         bar_type=bar_type,
-        capital=Decimal("1000"),
-        leverage=1.0,
+        capital=capital,
+        leverage=leverage,
+        backtest_start_date=args.start,
     )
-    
+
     # 6. Data Ingestion Block
-    # Loads a Binance 5-minute feather file created by download_binance.py
-    import glob
+    feather_path = args.feather
+    if not feather_path:
+        search_dirs = ["data", "."]
+        for d in search_dirs:
+            pattern = f"{d}/{args.exchange.lower()}_{raw_symbol}_{interval_ccxt}_*.feather"
+            files = sorted(glob.glob(pattern))
+            if files:
+                feather_path = files[-1]
+                break
+            pattern = f"{d}/{raw_symbol}_{interval_ccxt}_*.feather"
+            files = sorted(glob.glob(pattern))
+            if files:
+                feather_path = files[-1]
+                break
+        if not feather_path:
+            print(f"ERROR: No feather files found matching download_data.py naming.")
+            print(f"       Either pass --feather or ensure a file matching '{raw_symbol}_{interval_ccxt}_*.feather' exists in data/.")
+            exit(1)
 
-    feather_files = sorted(glob.glob("BTCUSDT_5m_*.feather"))
-    if not feather_files:
-        print("ERROR: No BTCUSDT_5m_*.feather file found. Run download_binance.py first.")
-        exit(1)
-
-    feather_path = feather_files[-1]
     print(f"Loading data from {feather_path}...")
     try:
         df = pd.read_feather(feather_path)
-        # Keep only columns needed by the backtest
         df = df[["timestamp", "open", "high", "low", "close", "volume"]]
-        
-        # Filter data from the configured start date to exclude low-quality early data
-        start_ts = pd.Timestamp(strategy_config.backtest_start_date, tz='UTC')
-        df = df[df['timestamp'] >= start_ts]
+
+        start_ts = pd.Timestamp(strategy_config.backtest_start_date, tz="UTC")
+        df = df[df["timestamp"] >= start_ts]
         df = df.reset_index(drop=True)
-        
+
         bars_list = []
         for row in df.itertuples(index=False):
             ts_nanos = dt_to_unix_nanos(row.timestamp)
-            
             bar = Bar(
                 bar_type=bar_type,
                 open=Price(row.open, precision=1),
@@ -189,11 +263,10 @@ if __name__ == "__main__":
                 ts_init=ts_nanos,
             )
             bars_list.append(bar)
-            
-        # Push the parsed list of Bars into the Backtest Engine
+
         engine.add_data(bars_list)
-        print(f"Successfully loaded {len(bars_list)} 5-minute bars into the engine.")
-        
+        print(f"Successfully loaded {len(bars_list)} {interval_ccxt} bars into the engine.")
+
     except FileNotFoundError:
         print(f"ERROR: Feather file '{feather_path}' not found.")
         exit(1)
@@ -201,58 +274,60 @@ if __name__ == "__main__":
     # 7. Attach the Momentum Strategy
     strategy = BitcoinIntradayMomentum(config=strategy_config)
     engine.add_strategy(strategy)
-    
+
     # 8. Run Execution
     print("Running backtest...")
     engine.run()
-    
+
     # 9. Display the final report
     print("\n========== BACKTEST COMPLETE ==========")
-    
+
     # ------------------------------------------------------------------
     # 9a. Portfolio Performance Statistics
     # ------------------------------------------------------------------
     stats_pnls = engine.portfolio.analyzer.get_performance_stats_pnls()
     stats_returns = engine.portfolio.analyzer.get_performance_stats_returns()
     stats_general = engine.portfolio.analyzer.get_performance_stats_general()
-    
+
     print("\n--- Portfolio Performance ---")
     for k, v in {**stats_pnls, **stats_returns, **stats_general}.items():
         print(f"  {k}: {v}")
-    
+
     # ------------------------------------------------------------------
     # 9b. Positions Report
     # ------------------------------------------------------------------
     positions_report = engine.trader.generate_positions_report()
     print(f"\n--- Positions Report ({len(positions_report)} rows) ---")
     print(positions_report.to_string(max_rows=20))
-    
+
     # ------------------------------------------------------------------
     # 9c. Fills Report
     # ------------------------------------------------------------------
     fills_report = engine.trader.generate_fills_report()
     print(f"\n--- Fills Report ({len(fills_report)} rows) ---")
     print(fills_report.to_string(max_rows=20))
-    
+
     # ------------------------------------------------------------------
     # 9d. Orders Report
     # ------------------------------------------------------------------
     orders_report = engine.trader.generate_orders_report()
     print(f"\n--- Orders Report ({len(orders_report)} rows) ---")
     print(orders_report.to_string(max_rows=20))
-    
+
     # ------------------------------------------------------------------
     # 9e. Account Report
     # ------------------------------------------------------------------
-    account_report = engine.trader.generate_account_report(Venue("BINANCE"))
+    account_report = engine.trader.generate_account_report(venue)
     print(f"\n--- Account Report ({len(account_report)} rows) ---")
     print(account_report.to_string(max_rows=10))
-    
+
     # ------------------------------------------------------------------
     # 9f. Interactive Tearsheet (HTML)
     # ------------------------------------------------------------------
-    print("\n--- Generating tearsheet ---")
-    create_tearsheet(engine, output_path="tearsheet.html")
-    print("Tearsheet saved to tearsheet.html")
-    
+    report_id = UUID4()
+    tearsheet_path = f"reports/tearsheet_{report_id}.html"
+    print(f"\n--- Generating tearsheet ({report_id}) ---")
+    create_tearsheet(engine, output_path=tearsheet_path)
+    print(f"Tearsheet saved to {tearsheet_path}")
+
     print("\n========== DONE ==========")
