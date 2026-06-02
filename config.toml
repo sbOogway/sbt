@@ -4,14 +4,14 @@ symbol = "BTC/USDT"
 interval = "5m"
 capital = 1000
 leverage = 1.0
-start = "2020-01-01"
+start = "2018-01-01"
 maker_fee = 0.0
 taker_fee = 0.000
 
-[strategy]
+[strategy.bitcoin_intraday_momentum]
 onfh_close_time = "08:00"
 slh_open_time = "16:00"
 slh_close_time = "16:30"
 vol_scaling = false
-rv_lookback = 22
+rv_lookback = 30
 max_leverage = 2.0
