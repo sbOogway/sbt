@@ -5,6 +5,7 @@ from typing import Optional
 
 import pandas as pd
 from nautilus_trader.analysis import create_tearsheet
+from nautilus_trader.analysis.statistic import PortfolioStatistic
 from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.core.datetime import dt_to_unix_nanos
@@ -17,6 +18,7 @@ from nautilus_trader.model.instruments import CryptoPerpetual
 from nautilus_trader.model.objects import Money, Price, Quantity
 from nautilus_trader.trading.strategy import Strategy
 
+
 # ---------------------------------------------------------
 # Strategy Configuration
 # ---------------------------------------------------------
@@ -25,16 +27,16 @@ class BitcoinIntradayMomentumConfig(StrategyConfig, frozen=True):
     bar_type: BarType
     capital: Decimal
     leverage: float = 1.0
-    
-    
+
     backtest_start_date: str = "2020-01-01"
-    
+
     # Time constants formatted in EST (Eastern Standard Time)
     # The paper defines open as "volume spikes" (~8:30am EST when US econ news released),
     # so first half-hour ends at ~9:00am EST (30 min after volume spikes).
-    onfh_close_time: str = "08:30"
+    onfh_close_time: str = "09:00"
     slh_open_time: str = "16:00"
     slh_close_time: str = "16:30"
+
 
 # ---------------------------------------------------------
 # Strategy Logic
@@ -48,10 +50,10 @@ class BitcoinIntradayMomentum(Strategy):
         self.prev_close: Optional[Decimal] = None
         self.onfh_close: Optional[Decimal] = None
         self.slh_open: Optional[Decimal] = None
-        
+
         self.r_onfh: Optional[float] = None
         self.r_slh: Optional[float] = None
-        
+
         self.current_position_side: Optional[OrderSide] = None
         self._open_qty: Optional[Quantity] = None
 
@@ -59,10 +61,10 @@ class BitcoinIntradayMomentum(Strategy):
         self.subscribe_bars(self.config.bar_type)
 
     def on_bar(self, bar: Bar) -> None:
-        dt_utc = pd.Timestamp(bar.ts_event, unit='ns', tz='UTC')
-        dt_est = dt_utc.tz_convert('US/Eastern')
-        time_str = dt_est.strftime('%H:%M')
-        
+        dt_utc = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
+        dt_est = dt_utc.tz_convert("US/Eastern")
+        time_str = dt_est.strftime("%H:%M")
+
         if time_str == self.config.onfh_close_time:
             self.onfh_close = Decimal(bar.close.as_double())
             if self.prev_close:
@@ -76,7 +78,7 @@ class BitcoinIntradayMomentum(Strategy):
                 slh_close = Decimal(bar.close.as_double())
                 self.r_slh = float(slh_close / self.slh_open) - 1.0
             self.evaluate_signal_and_trade(Decimal(bar.close.as_double()))
-            
+
         if time_str == "17:00":
             self.close_positions()
             self.prev_close = Decimal(bar.close.as_double())
@@ -86,9 +88,9 @@ class BitcoinIntradayMomentum(Strategy):
             return  # Wait until both intervals are safely captured for the day
 
         if self.r_onfh <= 0 and self.r_slh >= 0:
-            self._open_trade(OrderSide.SELL, price)
-        elif self.r_onfh > 0 and self.r_slh < 0:
             self._open_trade(OrderSide.BUY, price)
+        elif self.r_onfh > 0 and self.r_slh < 0:
+            self._open_trade(OrderSide.SELL, price)
         # else: no trade
 
     def close_positions(self) -> None:
@@ -96,7 +98,7 @@ class BitcoinIntradayMomentum(Strategy):
             self._close_trade(OrderSide.SELL)
         elif self.current_position_side == OrderSide.SELL:
             self._close_trade(OrderSide.BUY)
-            
+
         self.current_position_side = None
         self._open_qty = None
 
@@ -122,9 +124,45 @@ class BitcoinIntradayMomentum(Strategy):
         )
         self.submit_order(order)
 
+
+# ---------------------------------------------------------
+# Custom Portfolio Statistic: Calmar Ratio
+# ---------------------------------------------------------
+
+
+class CalmarRatio(PortfolioStatistic):
+    def calculate_from_returns(self, returns: pd.Series) -> float | None:
+        if not self._check_valid_returns(returns):
+            return None
+        daily = self._downsample_to_daily_bins(returns)
+        if len(daily) < 2:
+            return None
+        ann_return = daily.mean() * 252
+        cum = (1 + daily).cumprod()
+        running_max = cum.cummax()
+        dd = (cum - running_max) / running_max
+        max_dd = dd.min()
+        if max_dd >= 0:
+            return None
+        return float(ann_return / abs(max_dd))
+
+
+class RunConfig(PortfolioStatistic):
+    def __init__(self, **kwargs: str) -> None:
+        self._kwargs = kwargs
+
+    @property
+    def name(self) -> str:
+        return "Run Config"
+
+    def calculate_from_positions(self, positions: list) -> str:
+        return " | ".join(f"{k}={v}" for k, v in self._kwargs.items())
+
+
 # ---------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------
+
 
 def make_perpetual(venue_name: str, symbol_str: str) -> CryptoPerpetual:
     raw = symbol_str.replace("/", "")
@@ -149,16 +187,25 @@ def make_perpetual(venue_name: str, symbol_str: str) -> CryptoPerpetual:
         margin_init=Decimal("0.0500"),
         margin_maint=Decimal("0.0250"),
         maker_fee=Decimal("0.000000"),
-        taker_fee=Decimal("0.000000"),
+        taker_fee=Decimal("0.000200"),
         ts_event=0,
         ts_init=0,
     )
 
 
 _INTERVAL_MAP = {
-    "1m": "1-MINUTE", "3m": "3-MINUTE", "5m": "5-MINUTE", "15m": "15-MINUTE",
-    "30m": "30-MINUTE", "1h": "1-HOUR", "2h": "2-HOUR", "4h": "4-HOUR",
-    "6h": "6-HOUR", "8h": "8-HOUR", "12h": "12-HOUR", "1d": "1-DAY",
+    "1m": "1-MINUTE",
+    "3m": "3-MINUTE",
+    "5m": "5-MINUTE",
+    "15m": "15-MINUTE",
+    "30m": "30-MINUTE",
+    "1h": "1-HOUR",
+    "2h": "2-HOUR",
+    "4h": "4-HOUR",
+    "6h": "6-HOUR",
+    "8h": "8-HOUR",
+    "12h": "12-HOUR",
+    "1d": "1-DAY",
     "1w": "1-WEEK",
 }
 
@@ -174,15 +221,28 @@ def parse_interval(interval: str) -> str:
 # Backtest Initialization Engine & Data Loading
 # ---------------------------------------------------------
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description="Run BTC intraday momentum backtest")
-    parser.add_argument("--feather", help="Path to feather file (auto-detect if omitted)")
-    parser.add_argument("--exchange", default="BINANCE", help="Venue/exchange name (default: BINANCE)")
-    parser.add_argument("--symbol", default="BTC/USDT", help="Trading pair (default: BTC/USDT)")
-    parser.add_argument("--interval", default="5m", help="Candle interval (default: 5m)")
-    parser.add_argument("--capital", default="1000", help="Starting capital in USDT (default: 1000)")
+    parser.add_argument(
+        "--feather", help="Path to feather file (auto-detect if omitted)"
+    )
+    parser.add_argument(
+        "--exchange", default="BINANCE", help="Venue/exchange name (default: BINANCE)"
+    )
+    parser.add_argument(
+        "--symbol", default="BTC/USDT", help="Trading pair (default: BTC/USDT)"
+    )
+    parser.add_argument(
+        "--interval", default="5m", help="Candle interval (default: 5m)"
+    )
+    parser.add_argument(
+        "--capital", default="1000", help="Starting capital in USDT (default: 1000)"
+    )
     parser.add_argument("--leverage", default="1.0", help="Leverage (default: 1.0)")
-    parser.add_argument("--start", default="2020-01-01", help="Backtest start date (default: 2020-01-01)")
+    parser.add_argument(
+        "--start",
+        default="2020-01-01",
+        help="Backtest start date (default: 2020-01-01)",
+    )
     args = parser.parse_args()
 
     venue = Venue(args.exchange)
@@ -190,7 +250,7 @@ if __name__ == "__main__":
     interval_ccxt = args.interval
     interval_nt = parse_interval(interval_ccxt)
     capital = Decimal(args.capital)
-    leverage = float(args.leverage)
+    leverage = Decimal(args.leverage)
 
     # 1. Initialize Engine
     engine = BacktestEngine(config=BacktestEngineConfig())
@@ -202,6 +262,7 @@ if __name__ == "__main__":
         account_type=AccountType.MARGIN,
         base_currency=USDT,
         starting_balances=[Money(capital, USDT)],
+        default_leverage=leverage,
     )
 
     # 3. Setup Instrument
@@ -225,7 +286,9 @@ if __name__ == "__main__":
     if not feather_path:
         search_dirs = ["data", "."]
         for d in search_dirs:
-            pattern = f"{d}/{args.exchange.lower()}_{raw_symbol}_{interval_ccxt}_*.feather"
+            pattern = (
+                f"{d}/{args.exchange.lower()}_{raw_symbol}_{interval_ccxt}_*.feather"
+            )
             files = sorted(glob.glob(pattern))
             if files:
                 feather_path = files[-1]
@@ -237,7 +300,9 @@ if __name__ == "__main__":
                 break
         if not feather_path:
             print(f"ERROR: No feather files found matching download_data.py naming.")
-            print(f"       Either pass --feather or ensure a file matching '{raw_symbol}_{interval_ccxt}_*.feather' exists in data/.")
+            print(
+                f"       Either pass --feather or ensure a file matching '{raw_symbol}_{interval_ccxt}_*.feather' exists in data/."
+            )
             exit(1)
 
     print(f"Loading data from {feather_path}...")
@@ -265,17 +330,34 @@ if __name__ == "__main__":
             bars_list.append(bar)
 
         engine.add_data(bars_list)
-        print(f"Successfully loaded {len(bars_list)} {interval_ccxt} bars into the engine.")
+        print(
+            f"Successfully loaded {len(bars_list)} {interval_ccxt} bars into the engine."
+        )
 
     except FileNotFoundError:
         print(f"ERROR: Feather file '{feather_path}' not found.")
         exit(1)
 
-    # 7. Attach the Momentum Strategy
+    # 7. Register custom statistics
+    engine.portfolio.analyzer.register_statistic(CalmarRatio())
+    engine.portfolio.analyzer.register_statistic(
+        RunConfig(
+            pair=args.symbol,
+            exchange=args.exchange,
+            interval=args.interval,
+            capital=f"${args.capital}",
+            leverage=f"{args.leverage}x",
+            maker_fee=f"{float(instrument.maker_fee) * 100:.4f}%",
+            taker_fee=f"{float(instrument.taker_fee) * 100:.4f}%",
+            ofnh_close_time=f"{strategy_config.onfh_close_time}",
+        )
+    )
+
+    # 8. Attach the Momentum Strategy
     strategy = BitcoinIntradayMomentum(config=strategy_config)
     engine.add_strategy(strategy)
 
-    # 8. Run Execution
+    # 9. Run Execution
     print("Running backtest...")
     engine.run()
 
@@ -324,10 +406,14 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     # 9f. Interactive Tearsheet (HTML)
     # ------------------------------------------------------------------
-    report_id = UUID4()
-    tearsheet_path = f"reports/tearsheet_{report_id}.html"
-    print(f"\n--- Generating tearsheet ({report_id}) ---")
-    create_tearsheet(engine, output_path=tearsheet_path)
+    run_id = engine.run_id
+    tearsheet_path = f"reports/tearsheet_{run_id}.html"
+    print(f"\n--- Generating tearsheet ({run_id}) ---")
+    create_tearsheet(
+        engine,
+        output_path=tearsheet_path,
+        title=f"BTC Intraday Momentum — {args.exchange} {args.symbol} {args.interval}",
+    )
     print(f"Tearsheet saved to {tearsheet_path}")
 
     print("\n========== DONE ==========")

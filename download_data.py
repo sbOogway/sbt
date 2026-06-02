@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timezone
 
 import ccxt
-from nautilus_trader.core.uuid import UUID4
+# from nautilus_trader.core.uuid import UUID4
 import pandas as pd
 from tqdm import tqdm
 
@@ -80,10 +80,10 @@ def main() -> None:
     df.reset_index(drop=True, inplace=True)
 
     safe_symbol = args.symbol.replace("/", "")
-    session_id = UUID4()
+    # session_id = UUID4()
     output = (
         args.output
-        or f"data/{args.exchange}_{safe_symbol}_{args.interval}_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}_{session_id}.feather"
+        or f"data/{args.exchange}_{safe_symbol}_{args.interval}_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.feather"
     )
     df.to_feather(output)
     print(f"Saved {len(df)} rows to {output}")
