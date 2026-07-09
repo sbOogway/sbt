@@ -203,8 +203,8 @@ if __name__ == "__main__":
         "interval": interval_ccxt,
         "capital": f"${capital}",
         "leverage": f"{leverage_val}x",
-        "maker_fee": f"{float(instrument.maker_fee) :.4f}%",
-        "taker_fee": f"{float(instrument.taker_fee) :.4f}%",
+        "maker_fee": f"{float(instrument.maker_fee) :.7f}%",
+        "taker_fee": f"{float(instrument.taker_fee) :.7f}%",
         "slippage_ticks": f"{slippage_ticks}",
         "strategy": args.strategy,
     }

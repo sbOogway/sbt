@@ -29,6 +29,7 @@ class OvernightDriftConfig(StrategyConfig, frozen=True):
     rv_lookback: int = 22
     vol_max_scale: float = 0.0
     weekdays_only: bool = False
+    funding_enabled: bool = True
 
 
 class OvernightDrift(Strategy):
@@ -54,7 +55,8 @@ class OvernightDrift(Strategy):
 
     def on_start(self) -> None:
         self.subscribe_bars(self.config.bar_type)
-        self.subscribe_funding_rates(self.instrument_id)
+        if self.config.funding_enabled:
+            self.subscribe_funding_rates(self.instrument_id)
 
     def on_bar(self, bar: Bar) -> None:
         dt_utc = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
