@@ -13,6 +13,8 @@ from nautilus_trader.model.enums import AccountType, OmsType
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money, Price, Quantity
 
+from nautilus_trader.backtest.models import FillModel
+
 from .stats import AnnualizedReturn, CalmarRatio, RunConfig
 from .utils import make_perpetual, parse_interval, get_strategy_class
 
@@ -107,6 +109,7 @@ if __name__ == "__main__":
     maker_fee = Decimal(str(run.get("maker_fee", "0.0")))
     taker_fee = Decimal(str(run.get("taker_fee", "0.0")))
     settle_code = run.get("settle_currency", "USDT")
+    slippage_ticks = int(run.get("slippage_ticks", 0))
 
     _CURRENCY_MAP = {
         "USDT": USDT,
@@ -119,8 +122,31 @@ if __name__ == "__main__":
     interval_nt = parse_interval(interval_ccxt)
     leverage_dec = Decimal(str(leverage_val))
 
+    feather_path = args.feather or find_feather(ex, sym, interval_ccxt)
+    if not feather_path:
+        print(f"ERROR: No feather data found for {sym} ({interval_ccxt})")
+        exit(1)
+
+    print(f"Loading data from {feather_path}...")
+    try:
+        df = pd.read_feather(feather_path)
+        df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+        start_ts = pd.Timestamp(start, tz="UTC")
+        df = df[df["timestamp"] >= start_ts].reset_index(drop=True)
+    except FileNotFoundError:
+        print(f"ERROR: Feather file '{feather_path}' not found.")
+        exit(1)
+
+    ref_price = float(df["close"].iloc[0])
+    tick_size = 0.1
+    slippage_bps = slippage_ticks * tick_size / ref_price * 10000
+
+    taker_fee += Decimal(str(slippage_bps)) / Decimal(10000)
+
     venue = Venue(ex)
     engine = BacktestEngine(config=BacktestEngineConfig())
+
+    fill_model = FillModel(prob_slippage=1.0) if slippage_ticks > 0 else None
 
     engine.add_venue(
         venue=venue,
@@ -129,6 +155,7 @@ if __name__ == "__main__":
         base_currency=settle_currency,
         starting_balances=[Money(capital, settle_currency)],
         default_leverage=leverage_dec,
+        fill_model=fill_model,
     )
 
     base_code = sym.split("/")[0]
@@ -152,23 +179,9 @@ if __name__ == "__main__":
         **strat_params,
     )
 
-    feather_path = args.feather or find_feather(ex, sym, interval_ccxt)
-    if not feather_path:
-        print(f"ERROR: No feather data found for {sym} ({interval_ccxt})")
-        exit(1)
-
-    print(f"Loading data from {feather_path}...")
-    try:
-        df = pd.read_feather(feather_path)
-        df = df[["timestamp", "open", "high", "low", "close", "volume"]]
-        start_ts = pd.Timestamp(strategy_config.backtest_start_date, tz="UTC")
-        df = df[df["timestamp"] >= start_ts].reset_index(drop=True)
-        bars = load_bars(df, bar_type)
-        engine.add_data(bars)
-        print(f"Loaded {len(bars)} {interval_ccxt} bars.")
-    except FileNotFoundError:
-        print(f"ERROR: Feather file '{feather_path}' not found.")
-        exit(1)
+    print(f"Loaded {len(df)} {interval_ccxt} bars (ref_price={ref_price}).")
+    bars = load_bars(df, bar_type)
+    engine.add_data(bars)
 
     funding_path = find_feather(ex, sym, "funding")
     if funding_path:
@@ -192,6 +205,7 @@ if __name__ == "__main__":
         "leverage": f"{leverage_val}x",
         "maker_fee": f"{float(instrument.maker_fee) :.4f}%",
         "taker_fee": f"{float(instrument.taker_fee) :.4f}%",
+        "slippage_ticks": f"{slippage_ticks}",
         "strategy": args.strategy,
     }
     engine.portfolio.analyzer.register_statistic(RunConfig(**run_params))
@@ -209,6 +223,8 @@ if __name__ == "__main__":
         print(f"\n--- Funding Summary ---")
         print(f"  Total funding PnL: {float(total_funding_cost):+.2f} USDC")
         print(f"  (Negative = strategy paid, Positive = strategy received)")
+
+
 
     from .report import print_report
 

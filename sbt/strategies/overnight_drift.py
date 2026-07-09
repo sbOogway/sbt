@@ -17,6 +17,7 @@ class OvernightDriftConfig(StrategyConfig, frozen=True):
     bar_type: BarType
     capital: Decimal
     leverage: float
+    risk_percent: float = 1.0
 
     backtest_start_date: str = "2020-01-01"
 
@@ -26,7 +27,8 @@ class OvernightDriftConfig(StrategyConfig, frozen=True):
 
     vol_scaling: bool = True
     rv_lookback: int = 22
-    max_leverage: float = 0.0
+    vol_max_scale: float = 0.0
+    weekdays_only: bool = False
 
 
 class OvernightDrift(Strategy):
@@ -44,7 +46,7 @@ class OvernightDrift(Strategy):
         self._vol_scaler = (
             VolatilityScaler(
                 rv_lookback=config.rv_lookback,
-                max_leverage=config.max_leverage,
+                vol_max_scale=config.vol_max_scale,
             )
             if config.vol_scaling
             else None
@@ -56,14 +58,15 @@ class OvernightDrift(Strategy):
 
     def on_bar(self, bar: Bar) -> None:
         dt_utc = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
-        dt_et = dt_utc.tz_convert("US/Eastern")
-        time_str = dt_et.strftime("%H:%M")
+        time_str = dt_utc.strftime("%H:%M")
 
         close_price = Decimal(bar.close.as_double())
         self._latest_price = close_price
 
         if time_str == self.config.nyse_close_time:
-            if self.prev_close is not None and close_price < self.prev_close:
+            is_friday = dt_utc.weekday() == 4
+            should_trade = not (self.config.weekdays_only and is_friday)
+            if self.prev_close is not None and close_price < self.prev_close and should_trade:
                 self._open_trade(OrderSide.BUY, close_price)
 
             if (
@@ -73,10 +76,6 @@ class OvernightDrift(Strategy):
             ):
                 daily_ret = float(close_price / self.prev_close) - 1.0
                 self._vol_scaler.add_return(daily_ret)
-                dt_today = dt_et.date()
-                dt_tomorrow = dt_today + pd.Timedelta(days=1)
-                if dt_tomorrow.month != dt_today.month:
-                    self._vol_scaler.rebalance(dt_tomorrow.month)
 
             self.prev_close = close_price
 
@@ -109,9 +108,17 @@ class OvernightDrift(Strategy):
             if self._vol_scaler is not None
             else Decimal(1.0)
         )
-        notional = self.config.capital * Decimal(self.config.leverage) * weight
+        account = self.cache.account_for_venue(self.instrument_id.venue)
+        bal = account.balance_total()
+        if bal is None:
+            return
+        current_equity = Decimal(str(bal.as_double()))
+        if current_equity <= 0:
+            return
+        notional = current_equity * Decimal(self.config.risk_percent) * Decimal(self.config.leverage) * weight
         raw_size = notional / price
         self._open_qty = Quantity(round(float(raw_size), 3), precision=3)
+
         order = self.order_factory.market(
             instrument_id=self.instrument_id,
             order_side=order_side,
