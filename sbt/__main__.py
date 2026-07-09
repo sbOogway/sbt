@@ -7,8 +7,8 @@ from pathlib import Path
 import pandas as pd
 from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.core.datetime import dt_to_unix_nanos
-from nautilus_trader.model.currencies import USDT
-from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.currencies import Currency, USDC, USDT
+from nautilus_trader.model.data import Bar, BarType, FundingRateUpdate
 from nautilus_trader.model.enums import AccountType, OmsType
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money, Price, Quantity
@@ -34,6 +34,21 @@ def load_bars(df: pd.DataFrame, bar_type: BarType) -> list[Bar]:
             )
         )
     return bars
+
+
+def load_funding_rates(df: pd.DataFrame, instrument_id) -> list[FundingRateUpdate]:
+    updates = []
+    for row in df.itertuples(index=False):
+        ts_nanos = dt_to_unix_nanos(row.timestamp)
+        updates.append(
+            FundingRateUpdate(
+                instrument_id=instrument_id,
+                rate=float(row.funding_rate),
+                ts_event=ts_nanos,
+                ts_init=ts_nanos,
+            )
+        )
+    return updates
 
 
 def find_feather(exchange: str, symbol: str, interval: str) -> str | None:
@@ -91,6 +106,15 @@ if __name__ == "__main__":
     start = args.start or run.get("start", "2020-01-01")
     maker_fee = Decimal(str(run.get("maker_fee", "0.0")))
     taker_fee = Decimal(str(run.get("taker_fee", "0.0")))
+    settle_code = run.get("settle_currency", "USDT")
+
+    _CURRENCY_MAP = {
+        "USDT": USDT,
+        "USDC": USDC,
+    }
+    settle_currency = _CURRENCY_MAP.get(settle_code)
+    if settle_currency is None:
+        settle_currency = Currency(settle_code, 2, 0, settle_code, 0)
 
     interval_nt = parse_interval(interval_ccxt)
     leverage_dec = Decimal(str(leverage_val))
@@ -102,12 +126,17 @@ if __name__ == "__main__":
         venue=venue,
         oms_type=OmsType.NETTING,
         account_type=AccountType.MARGIN,
-        base_currency=USDT,
-        starting_balances=[Money(capital, USDT)],
+        base_currency=settle_currency,
+        starting_balances=[Money(capital, settle_currency)],
         default_leverage=leverage_dec,
     )
 
-    instrument = make_perpetual(ex, sym, maker_fee, taker_fee)
+    base_code = sym.split("/")[0]
+    base_currency = _CURRENCY_MAP.get(base_code, Currency(base_code, 2, 0, base_code, 0))
+    instrument = make_perpetual(ex, sym, maker_fee, taker_fee,
+                                base_currency=base_currency,
+                                settlement_currency=settle_currency,
+                                quote_currency=settle_currency)
     engine.add_instrument(instrument)
 
     bar_type = BarType.from_str(f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL")
@@ -141,6 +170,18 @@ if __name__ == "__main__":
         print(f"ERROR: Feather file '{feather_path}' not found.")
         exit(1)
 
+    funding_path = find_feather(ex, sym, "funding")
+    if funding_path:
+        print(f"Loading funding data from {funding_path}...")
+        df_funding = pd.read_feather(funding_path)
+        start_ts = pd.Timestamp(strategy_config.backtest_start_date, tz="UTC")
+        df_funding = df_funding[df_funding["timestamp"] >= start_ts].reset_index(drop=True)
+        funding_updates = load_funding_rates(df_funding, instrument.id)
+        engine.add_data(funding_updates)
+        print(f"Loaded {len(funding_updates)} funding rate updates.")
+    else:
+        print("No funding rate data found (file pattern: *funding*). Running without funding.")
+
     engine.portfolio.analyzer.register_statistic(CalmarRatio())
     engine.portfolio.analyzer.register_statistic(AnnualizedReturn())
     run_params = {
@@ -160,6 +201,14 @@ if __name__ == "__main__":
 
     print("Running backtest...")
     engine.run()
+
+    total_funding_cost = Decimal("0")
+    if hasattr(strategy, '_trade_funding_costs') and strategy._trade_funding_costs:
+        total_funding_cost = sum(strategy._trade_funding_costs)
+    if total_funding_cost != 0:
+        print(f"\n--- Funding Summary ---")
+        print(f"  Total funding PnL: {float(total_funding_cost):+.2f} USDC")
+        print(f"  (Negative = strategy paid, Positive = strategy received)")
 
     from .report import print_report
 

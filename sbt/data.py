@@ -8,6 +8,43 @@ import pandas as pd
 from tqdm import tqdm
 
 
+def fetch_funding_rates(exchange_id: str, symbol: str, start_ms: int, end_ms: int) -> list[dict]:
+    exchange_class = getattr(ccxt, exchange_id)
+    exchange = exchange_class({"enableRateLimit": True})
+
+    all_rates: list[dict] = []
+    since = start_ms
+    retries = 3
+
+    pbar = tqdm(desc=f"Fetching {symbol} funding rates from {exchange_id}")
+    while since < end_ms:
+        for attempt in range(retries):
+            try:
+                rates = exchange.fetch_funding_rate_history(symbol, since=since, limit=500)
+                break
+            except ccxt.NetworkError as e:
+                if attempt < retries - 1:
+                    wait = 2 ** attempt
+                    tqdm.write(f"Network error, retrying in {wait}s... ({e})")
+                    time.sleep(wait)
+                else:
+                    raise
+        if not rates:
+            break
+        parsed = [
+            {
+                "timestamp": pd.Timestamp(r["timestamp"], unit="ms", tz="UTC"),
+                "funding_rate": float(r["fundingRate"]),
+            }
+            for r in rates
+        ]
+        all_rates.extend(parsed)
+        since = rates[-1]["timestamp"] + 1
+        pbar.update(len(parsed))
+    pbar.close()
+    return all_rates
+
+
 def fetch_ohlcv(exchange_id: str, symbol: str, interval: str, start_ms: int, end_ms: int) -> list[dict]:
     exchange_class = getattr(ccxt, exchange_id)
     exchange = exchange_class({"enableRateLimit": True})
@@ -50,13 +87,14 @@ def fetch_ohlcv(exchange_id: str, symbol: str, interval: str, start_ms: int, end
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Download OHLCV candles via ccxt")
+    parser = argparse.ArgumentParser(description="Download market data via ccxt")
     parser.add_argument("--exchange", default="binance", help="Exchange ID (default: binance)")
     parser.add_argument("--symbol", default="BTC/USDT", help="Trading pair (default: BTC/USDT)")
     parser.add_argument("--interval", default="5m", help="Candle interval (default: 5m)")
     parser.add_argument("--start", default="2015-01-01", help="Start date (default: 2015-01-01)")
     parser.add_argument("--end", default=None, help="End date (default: today)")
     parser.add_argument("--output", default=None, help="Output feather path")
+    parser.add_argument("--type", default="ohlcv", choices=["ohlcv", "funding"], help="Data type to fetch (default: ohlcv)")
     args = parser.parse_args()
 
     start_dt = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
@@ -69,21 +107,24 @@ def main() -> None:
     start_ms = int(start_dt.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 
-    bars = fetch_ohlcv(args.exchange, args.symbol, args.interval, start_ms, end_ms)
-    if not bars:
+    if args.type == "funding":
+        rows = fetch_funding_rates(args.exchange, args.symbol, start_ms, end_ms)
+    else:
+        rows = fetch_ohlcv(args.exchange, args.symbol, args.interval, start_ms, end_ms)
+    if not rows:
         print("No data fetched.")
         return
 
-    df = pd.DataFrame(bars)
+    df = pd.DataFrame(rows)
     df.drop_duplicates(subset=["timestamp"], inplace=True)
     df.sort_values("timestamp", inplace=True)
     df.reset_index(drop=True, inplace=True)
 
     safe_symbol = args.symbol.replace("/", "")
-    # session_id = UUID4()
+    data_tag = args.type if args.type != "ohlcv" else args.interval
     output = (
         args.output
-        or f"data/{args.exchange}_{safe_symbol}_{args.interval}_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.feather"
+        or f"data/{args.exchange}_{safe_symbol}_{data_tag}_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.feather"
     )
     df.to_feather(output)
     print(f"Saved {len(df)} rows to {output}")

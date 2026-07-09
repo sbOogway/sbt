@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Type
 
-from nautilus_trader.model.currencies import BTC, USDT
+from nautilus_trader.model.currencies import BTC, USDC, USDT
 from nautilus_trader.model.identifiers import InstrumentId, Venue, Symbol
 from nautilus_trader.model.instruments import CryptoPerpetual
 from nautilus_trader.model.objects import Money, Price, Quantity
@@ -26,6 +26,12 @@ def get_strategy_class(name: str) -> tuple[Type, Type]:
             ORBConfig,
         )
         return ORBStrategy, ORBConfig
+    elif name == "overnight_drift":
+        from .strategies.overnight_drift import (
+            OvernightDrift,
+            OvernightDriftConfig,
+        )
+        return OvernightDrift, OvernightDriftConfig
     else:
         raise ValueError(f"Unknown strategy: {name}")
 
@@ -35,15 +41,18 @@ def make_perpetual(
     symbol_str: str,
     maker_fee: Decimal = Decimal("0.0"),
     taker_fee: Decimal = Decimal("0.0"),
+    base_currency=BTC,
+    quote_currency=USDT,
+    settlement_currency=USDT,
 ) -> CryptoPerpetual:
     raw = symbol_str.replace("/", "")
     inst_id = InstrumentId(symbol=Symbol(f"{raw}-PERP"), venue=Venue(venue_name))
     return CryptoPerpetual(
         instrument_id=inst_id,
         raw_symbol=Symbol(raw),
-        base_currency=BTC,
-        quote_currency=USDT,
-        settlement_currency=USDT,
+        base_currency=base_currency,
+        quote_currency=quote_currency,
+        settlement_currency=settlement_currency,
         is_inverse=False,
         price_precision=1,
         price_increment=Price.from_str("0.1"),
@@ -52,7 +61,7 @@ def make_perpetual(
         max_quantity=Quantity.from_str("1000.000"),
         min_quantity=Quantity.from_str("0.001"),
         max_notional=None,
-        min_notional=Money(10.00, USDT),
+        min_notional=Money(10.00, settlement_currency),
         max_price=Price.from_str("999999.0"),
         min_price=Price.from_str("0.1"),
         margin_init=Decimal("0.0500"),
