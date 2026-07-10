@@ -21,9 +21,8 @@ class OvernightDriftConfig(StrategyConfig, frozen=True):
 
     backtest_start_date: str = "2020-01-01"
 
-    nyse_open_time: str = "09:00"
-    nyse_close_time: str = "16:00"
-    europe_open_time: str = "02:00"
+    entry_time: str = "20:00"
+    exit_time: str = "06:00"
 
     vol_scaling: bool = True
     rv_lookback: int = 22
@@ -65,7 +64,7 @@ class OvernightDrift(Strategy):
         close_price = Decimal(bar.close.as_double())
         self._latest_price = close_price
 
-        if time_str == self.config.nyse_close_time:
+        if time_str == self.config.entry_time:
             is_friday = dt_utc.weekday() == 4
             should_trade = not (self.config.weekdays_only and is_friday)
             if self.prev_close is not None and close_price < self.prev_close and should_trade:
@@ -81,7 +80,7 @@ class OvernightDrift(Strategy):
 
             self.prev_close = close_price
 
-        if time_str == self.config.europe_open_time:
+        if time_str == self.config.exit_time:
             self.close_positions()
 
     def on_funding_rate(self, funding_rate: FundingRateUpdate) -> None:

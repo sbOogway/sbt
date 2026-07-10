@@ -110,6 +110,7 @@ if __name__ == "__main__":
     taker_fee = Decimal(str(run.get("taker_fee", "0.0")))
     settle_code = run.get("settle_currency", "USDT")
     slippage_ticks = int(run.get("slippage_ticks", 0))
+    tick_size = float(run.get("tick_size", 0.1))
 
     _CURRENCY_MAP = {
         "USDT": USDT,
@@ -138,7 +139,6 @@ if __name__ == "__main__":
         exit(1)
 
     ref_price = float(df["close"].iloc[0])
-    tick_size = 0.1
     slippage_bps = slippage_ticks * tick_size / ref_price * 10000
 
     taker_fee += Decimal(str(slippage_bps)) / Decimal(10000)

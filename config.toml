@@ -6,13 +6,14 @@ capital = 1000
 leverage = 3.0
 start = "2018-01-01"
 maker_fee = 0.0
-taker_fee = 0.0002
+taker_fee = 0.000086
 settle_currency = "USDC"
-slippage_ticks = 10
+slippage_ticks = 5
+tick_size = 0.1
 
 [strategy.overnight_drift]
-nyse_close_time = "20:00"
-europe_open_time = "06:00"
+entry_time = "20:00"
+exit_time = "13:00"
 vol_scaling = true
 rv_lookback = 5
 vol_max_scale = 2
