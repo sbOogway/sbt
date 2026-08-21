@@ -238,4 +238,11 @@ def cmd_optimize(args: argparse.Namespace) -> None:
         port=args.port,
         output_report=args.report,
         objective=args.objective,
+        overrides={
+            "exchange": args.exchange,
+            "symbol": args.symbol,
+            "interval": args.interval,
+            "leverage": args.leverage,
+            "start": args.start,
+        },
     )

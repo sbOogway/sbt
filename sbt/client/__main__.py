@@ -96,6 +96,11 @@ def main():
         default=None,
         help="Output HTML report path (default: reports/pareto_report.html or reports/sqn_report.html)",
     )
+    sub_opt.add_argument("--exchange", help="Override exchange")
+    sub_opt.add_argument("--symbol", help="Override trading pair")
+    sub_opt.add_argument("--interval", help="Override interval")
+    sub_opt.add_argument("--leverage", help="Override leverage")
+    sub_opt.add_argument("--start", help="Override start date")
     sub_opt.set_defaults(func=cmd_optimize)
 
     args = parser.parse_args()

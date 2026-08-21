@@ -17,6 +17,11 @@ _STRATEGY_REGISTRY = {
         "GlucksmannStrategy",
         "GlucksmannConfig",
     ),
+    "key_breakout": (
+        "strategies.key_breakout",
+        "KeyBreakout",
+        "KeyBreakoutConfig",
+    ),
     "orb": (
         "strategies.orb",
         "ORBStrategy",

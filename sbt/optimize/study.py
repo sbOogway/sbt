@@ -25,6 +25,7 @@ def run_optuna_study(
     port: int = 5555,
     output_report: str | None = None,
     objective: str = "sharpe",
+    overrides: dict | None = None,
 ) -> optuna.Study:
     """Run an Optuna optimization study for *strategy_name*.
 
@@ -37,7 +38,9 @@ def run_optuna_study(
             f"Unknown objective: {objective!r}. Expected 'sharpe' or 'sqn'."
         )
 
-    base_config = RunConfig.from_toml(config_path, strategy_name)
+    base_config = RunConfig.from_toml(
+        config_path, strategy_name, cli_overrides=overrides
+    )
 
     if not params:
         # Default parameter search spaces if none supplied on CLI
