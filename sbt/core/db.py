@@ -4,8 +4,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-from .job import BacktestJob, BacktestResult, JobStatus
 from .config import RunConfig
+from .job import BacktestJob, BacktestResult, JobStatus
 
 
 class ResultStore:
@@ -77,7 +77,9 @@ class ResultStore:
         )
         self.conn.commit()
 
-    def update_job_status(self, job_id: str, status: JobStatus, worker_id: str | None = None) -> None:
+    def update_job_status(
+        self, job_id: str, status: JobStatus, worker_id: str | None = None
+    ) -> None:
         self.conn.execute(
             "UPDATE jobs SET status = ?, worker_id = ? WHERE id = ?",
             (status.value, worker_id, job_id),
@@ -147,7 +149,8 @@ class ResultStore:
 
     def get_result(self, job_id: str) -> BacktestResult | None:
         row = self.conn.execute(
-            "SELECT * FROM results WHERE job_id = ?", (job_id,),
+            "SELECT * FROM results WHERE job_id = ?",
+            (job_id,),
         ).fetchone()
         if row is None:
             return None

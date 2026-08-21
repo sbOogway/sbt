@@ -1,8 +1,7 @@
 """ZMQ Client for communicating with the SBT Scheduler."""
 
-import json
 import logging
-import uuid
+
 import zmq
 
 from ..core.config import RunConfig
@@ -13,7 +12,9 @@ logger = logging.getLogger("Client")
 class SbtClient:
     """Client for dispatching and tracking backtests via the Scheduler daemon."""
 
-    def __init__(self, endpoint: str = "tcp://127.0.0.1:5555", timeout_ms: int = 5000) -> None:
+    def __init__(
+        self, endpoint: str = "tcp://127.0.0.1:5555", timeout_ms: int = 5000
+    ) -> None:
         self.endpoint = endpoint
         self.timeout_ms = timeout_ms
         self.ctx = zmq.Context()
@@ -44,22 +45,28 @@ class SbtClient:
 
     def submit(self, config: RunConfig, study_name: str | None = None) -> str:
         """Submit a single backtest job."""
-        resp = self._request({
-            "action": "submit",
-            "config": config.to_dict(),
-            "study_name": study_name,
-        })
+        resp = self._request(
+            {
+                "action": "submit",
+                "config": config.to_dict(),
+                "study_name": study_name,
+            }
+        )
         if resp.get("status") != "ok":
             raise RuntimeError(resp.get("error", "Failed to submit job"))
         return resp["job_id"]
 
-    def submit_batch(self, configs: list[RunConfig], study_name: str | None = None) -> list[str]:
+    def submit_batch(
+        self, configs: list[RunConfig], study_name: str | None = None
+    ) -> list[str]:
         """Submit a batch of backtest jobs."""
-        resp = self._request({
-            "action": "submit_batch",
-            "configs": [c.to_dict() for c in configs],
-            "study_name": study_name,
-        })
+        resp = self._request(
+            {
+                "action": "submit_batch",
+                "configs": [c.to_dict() for c in configs],
+                "study_name": study_name,
+            }
+        )
         if resp.get("status") != "ok":
             raise RuntimeError(resp.get("error", "Failed to submit batch"))
         return resp["job_ids"]

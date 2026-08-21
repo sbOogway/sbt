@@ -1,5 +1,4 @@
 from decimal import Decimal
-from typing import Optional
 
 import pandas as pd
 from nautilus_trader.config import StrategyConfig
@@ -34,20 +33,24 @@ class BitcoinIntradayMomentum(Strategy):
         super().__init__(config)
         self.instrument_id = config.instrument_id
         self.bar_type = config.bar_type
-        self.prev_close: Optional[Decimal] = None
-        self.onfh_close: Optional[Decimal] = None
-        self.slh_open: Optional[Decimal] = None
+        self.prev_close: Decimal | None = None
+        self.onfh_close: Decimal | None = None
+        self.slh_open: Decimal | None = None
 
-        self.r_onfh: Optional[float] = None
-        self.r_slh: Optional[float] = None
+        self.r_onfh: float | None = None
+        self.r_slh: float | None = None
 
-        self.current_position_side: Optional[OrderSide] = None
-        self._open_qty: Optional[Quantity] = None
+        self.current_position_side: OrderSide | None = None
+        self._open_qty: Quantity | None = None
 
-        self._vol_scaler = VolatilityScaler(
-            rv_lookback=config.rv_lookback,
-            max_leverage=config.max_leverage,
-        ) if config.vol_scaling else None
+        self._vol_scaler = (
+            VolatilityScaler(
+                rv_lookback=config.rv_lookback,
+                max_leverage=config.max_leverage,
+            )
+            if config.vol_scaling
+            else None
+        )
 
     def on_start(self) -> None:
         self.subscribe_bars(self.config.bar_type)
@@ -74,7 +77,11 @@ class BitcoinIntradayMomentum(Strategy):
         if time_str == "17:00":
             self.close_positions()
             close_val = Decimal(bar.close.as_double())
-            if self.config.vol_scaling and self.prev_close is not None and self._vol_scaler is not None:
+            if (
+                self.config.vol_scaling
+                and self.prev_close is not None
+                and self._vol_scaler is not None
+            ):
                 daily_ret = float(close_val / self.prev_close) - 1.0
                 self._vol_scaler.add_return(daily_ret)
                 dt_today = dt_est.date()
@@ -94,7 +101,7 @@ class BitcoinIntradayMomentum(Strategy):
 
     def close_positions(self) -> None:
         # if self.current_position_side == OrderSide.BUY:
-            # self._close_trade(OrderSide.BUY)
+        # self._close_trade(OrderSide.BUY)
         # elif self.current_position_side == OrderSide.SELL:
         self._close_trade(self.current_position_side)
 
@@ -102,7 +109,11 @@ class BitcoinIntradayMomentum(Strategy):
         self._open_qty = None
 
     def _open_trade(self, order_side: OrderSide, price: Decimal) -> None:
-        weight = Decimal(self._vol_scaler.weight) if self._vol_scaler is not None else Decimal(1.0)
+        weight = (
+            Decimal(self._vol_scaler.weight)
+            if self._vol_scaler is not None
+            else Decimal(1.0)
+        )
         notional = self.config.capital * Decimal(self.config.leverage) * weight
         raw_size = notional / price
         self._open_qty = Quantity(round(float(raw_size), 3), precision=3)
@@ -123,5 +134,3 @@ class BitcoinIntradayMomentum(Strategy):
             quantity=self._open_qty,
         )
         self.submit_order(order)
-
-

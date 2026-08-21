@@ -1,12 +1,11 @@
 """Scheduler daemon for managing backtest jobs and worker processes."""
 
-from collections import deque
 import json
 import logging
-from pathlib import Path
 import subprocess
 import sys
-import time
+from collections import deque
+from pathlib import Path
 
 import zmq
 
@@ -49,7 +48,11 @@ class Scheduler:
 
     def _spawn_workers(self) -> None:
         """Spawn the fixed worker subprocesses."""
-        logger.info("Spawning %d worker processes in %s...", self.num_workers, self.worktree_root)
+        logger.info(
+            "Spawning %d worker processes in %s...",
+            self.num_workers,
+            self.worktree_root,
+        )
         for i in range(self.num_workers):
             worker_id = f"worker-{i}"
             wt_path = self.worktree_root / worker_id
@@ -81,13 +84,22 @@ class Scheduler:
             self.db.update_job_status(job.id, JobStatus.RUNNING, worker_id)
             self.busy_workers[worker_id] = job.id
 
-            logger.info("Dispatching job %s (%s) to %s", job.id, job.config.strategy_name, worker_id)
-            worker_sock.send_multipart([
-                worker_id.encode("utf-8"),
-                json.dumps({"type": "JOB", "job": job.to_dict()}).encode("utf-8"),
-            ])
+            logger.info(
+                "Dispatching job %s (%s) to %s",
+                job.id,
+                job.config.strategy_name,
+                worker_id,
+            )
+            worker_sock.send_multipart(
+                [
+                    worker_id.encode("utf-8"),
+                    json.dumps({"type": "JOB", "job": job.to_dict()}).encode("utf-8"),
+                ]
+            )
 
-    def _handle_client_req(self, client_sock: zmq.Socket, worker_sock: zmq.Socket) -> None:
+    def _handle_client_req(
+        self, client_sock: zmq.Socket, worker_sock: zmq.Socket
+    ) -> None:
         """Process requests arriving from client CLI / optimizer."""
         msg_parts = client_sock.recv_multipart()
         if len(msg_parts) < 2:
@@ -96,7 +108,12 @@ class Scheduler:
         try:
             req = json.loads(msg_parts[1].decode("utf-8"))
         except Exception as e:
-            client_sock.send_multipart([client_id, json.dumps({"status": "error", "error": str(e)}).encode("utf-8")])
+            client_sock.send_multipart(
+                [
+                    client_id,
+                    json.dumps({"status": "error", "error": str(e)}).encode("utf-8"),
+                ]
+            )
             return
 
         action = req.get("action")
@@ -202,7 +219,9 @@ class Scheduler:
                 "Job %s completed by %s (Sharpe: %s, Trades: %s, PnL: %s)",
                 job_id,
                 worker_id,
-                f"{result.sharpe_ratio:.2f}" if result.sharpe_ratio is not None else "N/A",
+                f"{result.sharpe_ratio:.2f}"
+                if result.sharpe_ratio is not None
+                else "N/A",
                 result.num_trades,
                 f"${result.pnl:,.2f}" if result.pnl is not None else "N/A",
             )
@@ -223,7 +242,11 @@ class Scheduler:
         worker_sock = ctx.socket(zmq.ROUTER)
         worker_sock.bind(self.worker_endpoint)
 
-        logger.info("Scheduler listening on client=%s, worker=%s", self.client_endpoint, self.worker_endpoint)
+        logger.info(
+            "Scheduler listening on client=%s, worker=%s",
+            self.client_endpoint,
+            self.worker_endpoint,
+        )
 
         poller = zmq.Poller()
         poller.register(client_sock, zmq.POLLIN)
@@ -244,7 +267,12 @@ class Scheduler:
         finally:
             self.stop(client_sock, worker_sock, ctx)
 
-    def stop(self, client_sock: zmq.Socket | None = None, worker_sock: zmq.Socket | None = None, ctx: zmq.Context | None = None) -> None:
+    def stop(
+        self,
+        client_sock: zmq.Socket | None = None,
+        worker_sock: zmq.Socket | None = None,
+        ctx: zmq.Context | None = None,
+    ) -> None:
         """Gracefully stop scheduler and all workers."""
         logger.info("Stopping scheduler and workers...")
         self._running = False
@@ -253,10 +281,13 @@ class Scheduler:
             for i in range(self.num_workers):
                 worker_id = f"worker-{i}"
                 try:
-                    worker_sock.send_multipart([
-                        worker_id.encode("utf-8"),
-                        json.dumps({"type": "SHUTDOWN"}).encode("utf-8"),
-                    ], flags=zmq.NOBLOCK)
+                    worker_sock.send_multipart(
+                        [
+                            worker_id.encode("utf-8"),
+                            json.dumps({"type": "SHUTDOWN"}).encode("utf-8"),
+                        ],
+                        flags=zmq.NOBLOCK,
+                    )
                 except Exception:
                     pass
 

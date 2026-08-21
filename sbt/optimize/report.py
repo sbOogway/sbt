@@ -1,8 +1,9 @@
 """Generates an interactive HTML tearsheet of the Optuna Pareto Frontier."""
 
 import json
-from pathlib import Path
 import webbrowser
+from pathlib import Path
+
 import optuna
 
 
@@ -22,22 +23,28 @@ def generate_pareto_report(
     for t in trials:
         sharpe, trades, pnl = t.values if t.values else (0.0, 0, 0.0)
         is_pareto = t.number in best_trial_numbers
-        trials_data.append({
-            "number": t.number,
-            "sharpe": round(sharpe, 3) if sharpe else 0.0,
-            "trades": int(trades) if trades else 0,
-            "pnl": round(pnl, 2) if pnl else 0.0,
-            "params": t.params,
-            "is_pareto": is_pareto,
-        })
+        trials_data.append(
+            {
+                "number": t.number,
+                "sharpe": round(sharpe, 3) if sharpe else 0.0,
+                "trades": int(trades) if trades else 0,
+                "pnl": round(pnl, 2) if pnl else 0.0,
+                "params": t.params,
+                "is_pareto": is_pareto,
+            }
+        )
 
     trials_json = json.dumps(trials_data)
 
     # Collect parameter names
-    param_names = sorted(list(study.best_trials[0].params.keys())) if study.best_trials else []
+    param_names = (
+        sorted(list(study.best_trials[0].params.keys())) if study.best_trials else []
+    )
 
     pareto_rows_html = ""
-    for t in sorted(best_trials, key=lambda x: (x.values[0] if x.values else 0), reverse=True):
+    for t in sorted(
+        best_trials, key=lambda x: x.values[0] if x.values else 0, reverse=True
+    ):
         sharpe, trades, pnl = t.values if t.values else (0.0, 0, 0.0)
         param_cells = "".join(f"<td>{t.params.get(p, '-')}</td>" for p in param_names)
         pareto_rows_html += f"""
@@ -45,7 +52,7 @@ def generate_pareto_report(
             <td><strong>#{t.number}</strong></td>
             <td class="positive">{sharpe:.2f}</td>
             <td>{int(trades)}</td>
-            <td class="{'positive' if pnl >= 0 else 'negative'}">${pnl:+,.2f}</td>
+            <td class="{"positive" if pnl >= 0 else "negative"}">${pnl:+,.2f}</td>
             {param_cells}
         </tr>
         """

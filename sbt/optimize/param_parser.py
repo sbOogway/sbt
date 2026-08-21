@@ -2,6 +2,7 @@
 
 import re
 from typing import Any
+
 import optuna
 
 
@@ -58,7 +59,9 @@ def parse_param_spec(param_strs: list[str]) -> dict[str, tuple]:
     return space
 
 
-def suggest_params(trial: optuna.Trial, param_space: dict[str, tuple]) -> dict[str, Any]:
+def suggest_params(
+    trial: optuna.Trial, param_space: dict[str, tuple]
+) -> dict[str, Any]:
     """Sample parameter values from Optuna trial according to param_space."""
     params = {}
     for name, spec in param_space.items():

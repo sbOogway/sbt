@@ -11,22 +11,31 @@ Usage::
 """
 
 import argparse
-import sys
 
 from .cli import cmd_compare, cmd_optimize, cmd_results, cmd_status, cmd_submit
 
 
 def main():
     parser = argparse.ArgumentParser(description="SBT Client CLI")
-    parser.add_argument("--port", type=int, default=5555, help="Scheduler port (default: 5555)")
+    parser.add_argument(
+        "--port", type=int, default=5555, help="Scheduler port (default: 5555)"
+    )
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
     # submit
     sub_submit = subparsers.add_parser("submit", help="Submit backtest job(s)")
-    sub_submit.add_argument("--config", default="config.toml", help="Path to config.toml")
-    sub_submit.add_argument("--strategy", default="bitcoin_intraday_momentum", help="Strategy to run")
-    sub_submit.add_argument("--all-strategies", action="store_true", help="Submit all strategies in config")
-    sub_submit.add_argument("--wait", action="store_true", help="Wait for job completion")
+    sub_submit.add_argument(
+        "--config", default="config.toml", help="Path to config.toml"
+    )
+    sub_submit.add_argument(
+        "--strategy", default="bitcoin_intraday_momentum", help="Strategy to run"
+    )
+    sub_submit.add_argument(
+        "--all-strategies", action="store_true", help="Submit all strategies in config"
+    )
+    sub_submit.add_argument(
+        "--wait", action="store_true", help="Wait for job completion"
+    )
     sub_submit.add_argument("--exchange", help="Override exchange")
     sub_submit.add_argument("--symbol", help="Override trading pair")
     sub_submit.add_argument("--interval", help="Override interval")
@@ -36,7 +45,9 @@ def main():
     sub_submit.set_defaults(func=cmd_submit)
 
     # status
-    sub_status = subparsers.add_parser("status", help="Check scheduler and workers status")
+    sub_status = subparsers.add_parser(
+        "status", help="Check scheduler and workers status"
+    )
     sub_status.add_argument("--limit", type=int, default=20, help="Max jobs to display")
     sub_status.set_defaults(func=cmd_status)
 
@@ -47,20 +58,38 @@ def main():
     sub_results.set_defaults(func=cmd_results)
 
     # compare
-    sub_compare = subparsers.add_parser("compare", help="Compare multiple backtest runs")
+    sub_compare = subparsers.add_parser(
+        "compare", help="Compare multiple backtest runs"
+    )
     sub_compare.add_argument("--jobs", help="Comma-separated job IDs to compare")
-    sub_compare.add_argument("--study", help="Study name to compare all completed jobs from")
-    sub_compare.add_argument("--output", default="reports/compare.html", help="Output comparison HTML path")
+    sub_compare.add_argument(
+        "--study", help="Study name to compare all completed jobs from"
+    )
+    sub_compare.add_argument(
+        "--output", default="reports/compare.html", help="Output comparison HTML path"
+    )
     sub_compare.set_defaults(func=cmd_compare)
 
     # optimize
-    sub_opt = subparsers.add_parser("optimize", help="Run Optuna multi-objective hyperparameter optimization")
+    sub_opt = subparsers.add_parser(
+        "optimize", help="Run Optuna multi-objective hyperparameter optimization"
+    )
     sub_opt.add_argument("--config", default="config.toml", help="Path to config.toml")
     sub_opt.add_argument("--strategy", required=True, help="Strategy to optimize")
-    sub_opt.add_argument("--trials", type=int, default=30, help="Number of trials (default: 30)")
-    sub_opt.add_argument("--param", action="append", help="Parameter range: 'name=int(min,max)' or 'name=float(min,max)' or 'name=cat(v1,v2)'")
+    sub_opt.add_argument(
+        "--trials", type=int, default=30, help="Number of trials (default: 30)"
+    )
+    sub_opt.add_argument(
+        "--param",
+        action="append",
+        help="Parameter range: 'name=int(min,max)' or 'name=float(min,max)' or 'name=cat(v1,v2)'",
+    )
     sub_opt.add_argument("--db", default="sbt.db", help="SQLite database path")
-    sub_opt.add_argument("--report", default="reports/pareto_report.html", help="Output Pareto HTML report path")
+    sub_opt.add_argument(
+        "--report",
+        default="reports/pareto_report.html",
+        help="Output Pareto HTML report path",
+    )
     sub_opt.set_defaults(func=cmd_optimize)
 
     args = parser.parse_args()

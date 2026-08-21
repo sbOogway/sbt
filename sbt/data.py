@@ -1,14 +1,17 @@
 import argparse
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import ccxt
+
 # from nautilus_trader.core.uuid import UUID4
 import pandas as pd
 from tqdm import tqdm
 
 
-def fetch_funding_rates(exchange_id: str, symbol: str, start_ms: int, end_ms: int) -> list[dict]:
+def fetch_funding_rates(
+    exchange_id: str, symbol: str, start_ms: int, end_ms: int
+) -> list[dict]:
     exchange_class = getattr(ccxt, exchange_id)
     exchange = exchange_class({"enableRateLimit": True})
 
@@ -20,11 +23,13 @@ def fetch_funding_rates(exchange_id: str, symbol: str, start_ms: int, end_ms: in
     while since < end_ms:
         for attempt in range(retries):
             try:
-                rates = exchange.fetch_funding_rate_history(symbol, since=since, limit=500)
+                rates = exchange.fetch_funding_rate_history(
+                    symbol, since=since, limit=500
+                )
                 break
             except ccxt.NetworkError as e:
                 if attempt < retries - 1:
-                    wait = 2 ** attempt
+                    wait = 2**attempt
                     tqdm.write(f"Network error, retrying in {wait}s... ({e})")
                     time.sleep(wait)
                 else:
@@ -45,7 +50,9 @@ def fetch_funding_rates(exchange_id: str, symbol: str, start_ms: int, end_ms: in
     return all_rates
 
 
-def fetch_ohlcv(exchange_id: str, symbol: str, interval: str, start_ms: int, end_ms: int) -> list[dict]:
+def fetch_ohlcv(
+    exchange_id: str, symbol: str, interval: str, start_ms: int, end_ms: int
+) -> list[dict]:
     exchange_class = getattr(ccxt, exchange_id)
     exchange = exchange_class({"enableRateLimit": True})
 
@@ -61,7 +68,7 @@ def fetch_ohlcv(exchange_id: str, symbol: str, interval: str, start_ms: int, end
                 break
             except ccxt.NetworkError as e:
                 if attempt < retries - 1:
-                    wait = 2 ** attempt
+                    wait = 2**attempt
                     tqdm.write(f"Network error, retrying in {wait}s... ({e})")
                     time.sleep(wait)
                 else:
@@ -88,20 +95,33 @@ def fetch_ohlcv(exchange_id: str, symbol: str, interval: str, start_ms: int, end
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download market data via ccxt")
-    parser.add_argument("--exchange", default="binance", help="Exchange ID (default: binance)")
-    parser.add_argument("--symbol", default="BTC/USDT", help="Trading pair (default: BTC/USDT)")
-    parser.add_argument("--interval", default="5m", help="Candle interval (default: 5m)")
-    parser.add_argument("--start", default="2015-01-01", help="Start date (default: 2015-01-01)")
+    parser.add_argument(
+        "--exchange", default="binance", help="Exchange ID (default: binance)"
+    )
+    parser.add_argument(
+        "--symbol", default="BTC/USDT", help="Trading pair (default: BTC/USDT)"
+    )
+    parser.add_argument(
+        "--interval", default="5m", help="Candle interval (default: 5m)"
+    )
+    parser.add_argument(
+        "--start", default="2015-01-01", help="Start date (default: 2015-01-01)"
+    )
     parser.add_argument("--end", default=None, help="End date (default: today)")
     parser.add_argument("--output", default=None, help="Output feather path")
-    parser.add_argument("--type", default="ohlcv", choices=["ohlcv", "funding"], help="Data type to fetch (default: ohlcv)")
+    parser.add_argument(
+        "--type",
+        default="ohlcv",
+        choices=["ohlcv", "funding"],
+        help="Data type to fetch (default: ohlcv)",
+    )
     args = parser.parse_args()
 
-    start_dt = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
+    start_dt = datetime.fromisoformat(args.start).replace(tzinfo=UTC)
     end_dt = (
-        datetime.fromisoformat(args.end).replace(tzinfo=timezone.utc)
+        datetime.fromisoformat(args.end).replace(tzinfo=UTC)
         if args.end
-        else datetime.now(timezone.utc)
+        else datetime.now(UTC)
     )
 
     start_ms = int(start_dt.timestamp() * 1000)

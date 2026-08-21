@@ -1,17 +1,13 @@
 """Worker process running in an isolated git worktree."""
 
 import argparse
-import json
 import logging
 import os
-from pathlib import Path
 import subprocess
-import sys
-import time
+from pathlib import Path
 
 import zmq
 
-from ..core.config import RunConfig
 from ..core.job import BacktestJob, BacktestResult, JobStatus
 from ..core.runner import BacktestRunner
 
@@ -90,7 +86,12 @@ class Worker:
 
     def run_job(self, job: BacktestJob) -> BacktestResult:
         """Execute a backtest job in the worker's worktree context."""
-        logger.info("[%s] Executing job %s (%s)", self.worker_id, job.id, job.config.strategy_name)
+        logger.info(
+            "[%s] Executing job %s (%s)",
+            self.worker_id,
+            job.id,
+            job.config.strategy_name,
+        )
         # Ensure we point to the worktree data / config
         orig_cwd = os.getcwd()
         try:
@@ -108,7 +109,9 @@ class Worker:
             result = runner.run(job_id=job.id)
             return result
         except Exception as e:
-            logger.exception("[%s] Job %s failed with exception: %s", self.worker_id, job.id, e)
+            logger.exception(
+                "[%s] Job %s failed with exception: %s", self.worker_id, job.id, e
+            )
             return BacktestResult(
                 job_id=job.id,
                 status=JobStatus.FAILED,
@@ -124,7 +127,9 @@ class Worker:
         sock = ctx.socket(zmq.DEALER)
         sock.setsockopt_string(zmq.IDENTITY, self.worker_id)
         sock.connect(self.scheduler_endpoint)
-        logger.info("[%s] Connected to scheduler at %s", self.worker_id, self.scheduler_endpoint)
+        logger.info(
+            "[%s] Connected to scheduler at %s", self.worker_id, self.scheduler_endpoint
+        )
 
         # Notify scheduler we are ready
         sock.send_json({"type": "READY", "worker_id": self.worker_id})
@@ -146,16 +151,20 @@ class Worker:
                         job_dict = msg.get("job")
                         job = BacktestJob.from_dict(job_dict)
                         result = self.run_job(job)
-                        sock.send_json({
-                            "type": "RESULT",
-                            "worker_id": self.worker_id,
-                            "job_id": job.id,
-                            "result": result.to_dict(),
-                        })
+                        sock.send_json(
+                            {
+                                "type": "RESULT",
+                                "worker_id": self.worker_id,
+                                "job_id": job.id,
+                                "result": result.to_dict(),
+                            }
+                        )
                     elif msg_type == "PING":
                         sock.send_json({"type": "PONG", "worker_id": self.worker_id})
                     else:
-                        logger.warning("[%s] Unknown message type: %s", self.worker_id, msg_type)
+                        logger.warning(
+                            "[%s] Unknown message type: %s", self.worker_id, msg_type
+                        )
 
         except KeyboardInterrupt:
             logger.info("[%s] Worker interrupted", self.worker_id)
@@ -170,7 +179,9 @@ if __name__ == "__main__":
     parser.add_argument("--worker-id", required=True, help="Unique worker identifier")
     parser.add_argument("--worktree", required=True, help="Path to worker git worktree")
     parser.add_argument("--repo-root", default=".", help="Root repo directory")
-    parser.add_argument("--endpoint", default="tcp://127.0.0.1:5556", help="Scheduler worker endpoint")
+    parser.add_argument(
+        "--endpoint", default="tcp://127.0.0.1:5556", help="Scheduler worker endpoint"
+    )
     args = parser.parse_args()
 
     worker = Worker(

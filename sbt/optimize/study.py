@@ -2,7 +2,7 @@
 
 import datetime
 from pathlib import Path
-import tomllib
+
 import optuna
 
 from ..core.config import RunConfig
@@ -48,7 +48,9 @@ def run_optuna_study(
                 "sma_slow=int(40,70)",
             ]
         else:
-            raise ValueError(f"No --param specs provided for strategy '{strategy_name}'.")
+            raise ValueError(
+                f"No --param specs provided for strategy '{strategy_name}'."
+            )
 
     param_space = parse_param_spec(params)
     print(f"\n--- Starting Optuna Optimization for '{strategy_name}' ---")
@@ -87,7 +89,7 @@ def run_optuna_study(
 
     study.optimize(objective, n_trials=n_trials)
 
-    print(f"\n========== OPTIMIZATION COMPLETE ==========")
+    print("\n========== OPTIMIZATION COMPLETE ==========")
     print(f"Completed {len(study.trials)} trials.")
     print(f"Found {len(study.best_trials)} Pareto-optimal solutions.")
 

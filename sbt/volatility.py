@@ -18,7 +18,7 @@ class VolatilityScaler:
         if len(self.daily_returns) < self.rv_lookback:
             return
 
-        rv = sum(r * r for r in self.daily_returns[-self.rv_lookback:])
+        rv = sum(r * r for r in self.daily_returns[-self.rv_lookback :])
         self._rv_history.append(rv)
         c = sum(self._rv_history) / len(self._rv_history)
         self._weight = min(self.vol_max_scale, c / rv) if rv > 0 else self.vol_max_scale

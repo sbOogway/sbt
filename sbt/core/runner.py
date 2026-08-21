@@ -19,17 +19,17 @@ import pandas as pd
 from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.backtest.models import FillModel
 from nautilus_trader.core.datetime import dt_to_unix_nanos
-from nautilus_trader.model.currencies import Currency, USDC, USDT
+from nautilus_trader.model.currencies import USDC, USDT, Currency
 from nautilus_trader.model.data import Bar, BarType, FundingRateUpdate
 from nautilus_trader.model.enums import AccountType, OmsType
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money, Price, Quantity
 
-from ..stats import AnnualizedReturn, CalmarRatio, RunConfig as RunConfigStat
+from ..stats import AnnualizedReturn, CalmarRatio
+from ..stats import RunConfig as RunConfigStat
 from ..utils import get_strategy_class, make_perpetual, parse_interval
 from .config import RunConfig
 from .job import BacktestResult, JobStatus
-
 
 _CURRENCY_MAP = {
     "USDT": USDT,
@@ -40,6 +40,7 @@ _CURRENCY_MAP = {
 # ------------------------------------------------------------------
 # Data helpers (moved from __main__)
 # ------------------------------------------------------------------
+
 
 def load_bars(df: pd.DataFrame, bar_type: BarType) -> list[Bar]:
     """Convert an OHLCV DataFrame into a list of Nautilus Bar objects."""
@@ -108,6 +109,7 @@ def find_feather(
 # BacktestRunner
 # ------------------------------------------------------------------
 
+
 class BacktestRunner:
     """Configures and executes a single backtest.
 
@@ -129,7 +131,9 @@ class BacktestRunner:
 
         # -- Resolve data path -----------------------------------------
         feather_path = cfg.feather_path or find_feather(
-            cfg.exchange, cfg.symbol, cfg.interval,
+            cfg.exchange,
+            cfg.symbol,
+            cfg.interval,
             search_dirs=[cfg.data_dir, "."],
         )
         if not feather_path:
@@ -160,7 +164,9 @@ class BacktestRunner:
         # -- Resolve currencies ----------------------------------------
         settle_currency = _CURRENCY_MAP.get(cfg.settle_currency)
         if settle_currency is None:
-            settle_currency = Currency(cfg.settle_currency, 2, 0, cfg.settle_currency, 0)
+            settle_currency = Currency(
+                cfg.settle_currency, 2, 0, cfg.settle_currency, 0
+            )
 
         # -- Engine setup ----------------------------------------------
         interval_nt = parse_interval(cfg.interval)
@@ -186,17 +192,23 @@ class BacktestRunner:
         # -- Instrument ------------------------------------------------
         base_code = cfg.symbol.split("/")[0]
         base_currency = _CURRENCY_MAP.get(
-            base_code, Currency(base_code, 2, 0, base_code, 0),
+            base_code,
+            Currency(base_code, 2, 0, base_code, 0),
         )
         instrument = make_perpetual(
-            cfg.exchange, cfg.symbol, cfg.maker_fee, taker_fee,
+            cfg.exchange,
+            cfg.symbol,
+            cfg.maker_fee,
+            taker_fee,
             base_currency=base_currency,
             settlement_currency=settle_currency,
             quote_currency=settle_currency,
         )
         engine.add_instrument(instrument)
 
-        bar_type = BarType.from_str(f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL")
+        bar_type = BarType.from_str(
+            f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL"
+        )
 
         # -- Strategy --------------------------------------------------
         StrategyClass, ConfigClass = get_strategy_class(cfg.strategy_name)
@@ -216,19 +228,25 @@ class BacktestRunner:
 
         # -- Load funding rates ----------------------------------------
         funding_path = find_feather(
-            cfg.exchange, cfg.symbol, "funding",
+            cfg.exchange,
+            cfg.symbol,
+            "funding",
             search_dirs=[cfg.data_dir, "."],
         )
         if funding_path:
             print(f"Loading funding data from {funding_path}...")
             df_funding = pd.read_feather(funding_path)
             start_ts = pd.Timestamp(cfg.start, tz="UTC")
-            df_funding = df_funding[df_funding["timestamp"] >= start_ts].reset_index(drop=True)
+            df_funding = df_funding[df_funding["timestamp"] >= start_ts].reset_index(
+                drop=True
+            )
             funding_updates = load_funding_rates(df_funding, instrument.id)
             engine.add_data(funding_updates)
             print(f"Loaded {len(funding_updates)} funding rate updates.")
         else:
-            print("No funding rate data found (file pattern: *funding*). Running without funding.")
+            print(
+                "No funding rate data found (file pattern: *funding*). Running without funding."
+            )
 
         # -- Register stats --------------------------------------------
         engine.portfolio.analyzer.register_statistic(CalmarRatio())

@@ -1,8 +1,8 @@
 """Multi-strategy performance comparison dashboard."""
 
 import json
-from pathlib import Path
 import webbrowser
+from pathlib import Path
 from typing import Any
 
 
@@ -49,7 +49,9 @@ def generate_comparison_dashboard(
         "Profit Factor",
         "Total Trades",
     ]
-    other_keys = sorted([k for k in all_keys if k not in priority_keys and "config" not in k.lower()])
+    other_keys = sorted(
+        [k for k in all_keys if k not in priority_keys and "config" not in k.lower()]
+    )
     ordered_keys = [k for k in priority_keys if k in all_keys] + other_keys
 
     # Build comparison table rows
@@ -77,12 +79,14 @@ def generate_comparison_dashboard(
 
     headers_html = "".join(f"<th>{l}</th>" for l in labels)
 
-    chart_data_json = json.dumps({
-        "labels": labels,
-        "sharpe": sharpe_vals,
-        "pnl": pnl_vals,
-        "trades": trades_vals,
-    })
+    chart_data_json = json.dumps(
+        {
+            "labels": labels,
+            "sharpe": sharpe_vals,
+            "pnl": pnl_vals,
+            "trades": trades_vals,
+        }
+    )
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">

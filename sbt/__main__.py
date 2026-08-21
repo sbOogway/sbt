@@ -8,7 +8,6 @@ Usage::
 from .core.config import RunConfig
 from .core.runner import BacktestRunner
 
-
 if __name__ == "__main__":
     cfg = RunConfig.parse_cli()
     runner = BacktestRunner(cfg)
@@ -20,9 +19,9 @@ if __name__ == "__main__":
 
     # Funding summary
     if result.funding_pnl != 0:
-        print(f"\n--- Funding Summary ---")
+        print("\n--- Funding Summary ---")
         print(f"  Total funding PnL: {result.funding_pnl:+.2f} {cfg.settle_currency}")
-        print(f"  (Negative = strategy paid, Positive = strategy received)")
+        print("  (Negative = strategy paid, Positive = strategy received)")
 
     # Report generation (uses engine/venue retained by the runner)
     from .report import print_report

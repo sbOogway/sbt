@@ -1,5 +1,4 @@
 from decimal import Decimal
-from typing import Optional
 
 import pandas as pd
 from nautilus_trader.config import StrategyConfig
@@ -36,11 +35,11 @@ class OvernightDrift(Strategy):
         super().__init__(config)
         self.instrument_id = config.instrument_id
         self.bar_type = config.bar_type
-        self.prev_close: Optional[Decimal] = None
-        self.current_position_side: Optional[OrderSide] = None
-        self._open_qty: Optional[Quantity] = None
-        self._latest_price: Optional[Decimal] = None
-        self._open_funding_cost: Decimal = Decimal("0")
+        self.prev_close: Decimal | None = None
+        self.current_position_side: OrderSide | None = None
+        self._open_qty: Quantity | None = None
+        self._latest_price: Decimal | None = None
+        self._open_funding_cost: Decimal = Decimal(0)
         self._trade_funding_costs: list[Decimal] = []
 
         self._vol_scaler = (
@@ -67,7 +66,11 @@ class OvernightDrift(Strategy):
         if time_str == self.config.entry_time:
             is_friday = dt_utc.weekday() == 4
             should_trade = not (self.config.weekdays_only and is_friday)
-            if self.prev_close is not None and close_price < self.prev_close and should_trade:
+            if (
+                self.prev_close is not None
+                and close_price < self.prev_close
+                and should_trade
+            ):
                 self._open_trade(OrderSide.BUY, close_price)
 
             if (
@@ -101,7 +104,7 @@ class OvernightDrift(Strategy):
             self._trade_funding_costs.append(self._open_funding_cost)
         self.current_position_side = None
         self._open_qty = None
-        self._open_funding_cost = Decimal("0")
+        self._open_funding_cost = Decimal(0)
 
     def _open_trade(self, order_side: OrderSide, price: Decimal) -> None:
         weight = (
@@ -116,7 +119,12 @@ class OvernightDrift(Strategy):
         current_equity = Decimal(str(bal.as_double()))
         if current_equity <= 0:
             return
-        notional = current_equity * Decimal(self.config.risk_percent) * Decimal(self.config.leverage) * weight
+        notional = (
+            current_equity
+            * Decimal(self.config.risk_percent)
+            * Decimal(self.config.leverage)
+            * weight
+        )
         raw_size = notional / price
         self._open_qty = Quantity(round(float(raw_size), 3), precision=3)
 
@@ -128,7 +136,7 @@ class OvernightDrift(Strategy):
         self.submit_order(order)
         self.current_position_side = order_side
 
-    def _close_trade(self, order_side: Optional[OrderSide]) -> None:
+    def _close_trade(self, order_side: OrderSide | None) -> None:
         if self._open_qty is None or order_side is None:
             return
         order = self.order_factory.market(

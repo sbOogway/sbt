@@ -23,7 +23,7 @@ class BacktestJob:
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     status: JobStatus = JobStatus.PENDING
     submitted_at: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc),
+        default_factory=lambda: datetime.datetime.now(datetime.UTC),
     )
     worker_id: str | None = None
     study_name: str | None = None
@@ -40,7 +40,7 @@ class BacktestJob:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "BacktestJob":
+    def from_dict(cls, d: dict) -> BacktestJob:
         """Reconstruct BacktestJob from a dictionary."""
         sub_at = d.get("submitted_at")
         if isinstance(sub_at, str):
@@ -48,7 +48,7 @@ class BacktestJob:
         elif isinstance(sub_at, datetime.datetime):
             submitted_at = sub_at
         else:
-            submitted_at = datetime.datetime.now(datetime.timezone.utc)
+            submitted_at = datetime.datetime.now(datetime.UTC)
 
         return cls(
             config=RunConfig.from_dict(d["config"]),
@@ -104,7 +104,7 @@ class BacktestResult:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "BacktestResult":
+    def from_dict(cls, d: dict) -> BacktestResult:
         """Reconstruct BacktestResult from a dictionary."""
         return cls(
             job_id=d["job_id"],

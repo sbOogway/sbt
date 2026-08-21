@@ -20,7 +20,7 @@ class RunConfig:
     interval: str
     strategy_name: str
     strategy_params: dict = field(default_factory=dict)
-    capital: Decimal = Decimal("1000")
+    capital: Decimal = Decimal(1000)
     leverage: float = 1.0
     start: str = "2020-01-01"
     maker_fee: Decimal = Decimal("0.0")
@@ -31,7 +31,7 @@ class RunConfig:
     feather_path: str | None = None
     data_dir: str = "data"
 
-    def with_overrides(self, params: dict) -> "RunConfig":
+    def with_overrides(self, params: dict) -> RunConfig:
         """Return a copy with strategy_params updated from *params*."""
         merged = {**self.strategy_params, **params}
         return RunConfig(
@@ -73,7 +73,7 @@ class RunConfig:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "RunConfig":
+    def from_dict(cls, d: dict) -> RunConfig:
         """Reconstruct RunConfig from a dictionary."""
         return cls(
             exchange=d["exchange"],
@@ -103,7 +103,7 @@ class RunConfig:
         toml_path: str | Path,
         strategy_name: str,
         cli_overrides: dict | None = None,
-    ) -> "RunConfig":
+    ) -> RunConfig:
         """Build a RunConfig from a TOML file + optional CLI overrides.
 
         *cli_overrides* keys match CLI flag names (exchange, symbol,
@@ -142,7 +142,7 @@ class RunConfig:
         )
 
     @classmethod
-    def parse_cli(cls) -> "RunConfig":
+    def parse_cli(cls) -> RunConfig:
         """Parse CLI arguments and build a RunConfig."""
         parser = argparse.ArgumentParser(description="Run a strategy backtest")
         parser.add_argument(
@@ -150,7 +150,9 @@ class RunConfig:
             default="config.toml",
             help="Path to TOML config file (default: config.toml)",
         )
-        parser.add_argument("--feather", help="Path to feather file (auto-detect if omitted)")
+        parser.add_argument(
+            "--feather", help="Path to feather file (auto-detect if omitted)"
+        )
         parser.add_argument("--exchange", help="Override exchange from config")
         parser.add_argument("--symbol", help="Override trading pair from config")
         parser.add_argument("--interval", help="Override candle interval from config")

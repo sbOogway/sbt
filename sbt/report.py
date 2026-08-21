@@ -161,10 +161,7 @@ def _process_stats(
             return f'<span class="negative">{val}</span>'
         return val
 
-    return "\n".join(
-        f"<tr><td>{k}</td><td>{_color(v)}</td></tr>"
-        for k, v in rows
-    )
+    return "\n".join(f"<tr><td>{k}</td><td>{_color(v)}</td></tr>" for k, v in rows)
 
 
 def _build_reports_html(
@@ -178,7 +175,7 @@ def _build_reports_html(
     chart: str,
 ) -> str:
 
-    _sort_script = """
+    _sort_script = r"""
 <script>
 document.addEventListener('click', function(e) {
   var th = e.target.closest('th');

@@ -1,10 +1,10 @@
 """CLI commands for interacting with the SBT Scheduler and running optimization."""
 
 import argparse
-from pathlib import Path
 import sys
 import time
 import tomllib
+from pathlib import Path
 
 from ..core.config import RunConfig
 from .client import SbtClient
@@ -23,9 +23,13 @@ def _format_table(headers: list[str], rows: list[list[str]]) -> str:
     mid = "├" + "┼".join("─" * (w + 2) for w in col_widths) + "┤"
     bot = "└" + "┴".join("─" * (w + 2) for w in col_widths) + "┘"
 
-    header_line = "│ " + " │ ".join(f"{h:<{col_widths[i]}}" for i, h in enumerate(headers)) + " │"
+    header_line = (
+        "│ " + " │ ".join(f"{h:<{col_widths[i]}}" for i, h in enumerate(headers)) + " │"
+    )
     data_lines = [
-        "│ " + " │ ".join(f"{str(val):<{col_widths[i]}}" for i, val in enumerate(row)) + " │"
+        "│ "
+        + " │ ".join(f"{val!s:<{col_widths[i]}}" for i, val in enumerate(row))
+        + " │"
         for row in rows
     ]
 
@@ -63,8 +67,7 @@ def cmd_submit(args: argparse.Namespace) -> None:
             print("No strategies defined in config.toml [strategy.*] sections.")
             sys.exit(1)
         configs = [
-            RunConfig.from_toml(args.config, strat, overrides)
-            for strat in strategies
+            RunConfig.from_toml(args.config, strat, overrides) for strat in strategies
         ]
         job_ids = client.submit_batch(configs)
         print(f"Submitted {len(job_ids)} jobs:")
@@ -104,9 +107,13 @@ def _wait_for_jobs(client: SbtClient, job_ids: list[str]) -> None:
     rows = []
     for jid in job_ids:
         res = results.get(jid, {})
-        sharpe = f"{res.get('sharpe_ratio'):.2f}" if res.get('sharpe_ratio') is not None else "N/A"
-        trades = str(res.get('num_trades', "N/A"))
-        pnl = f"${res.get('pnl', 0):+,.2f}" if res.get('pnl') is not None else "N/A"
+        sharpe = (
+            f"{res.get('sharpe_ratio'):.2f}"
+            if res.get("sharpe_ratio") is not None
+            else "N/A"
+        )
+        trades = str(res.get("num_trades", "N/A"))
+        pnl = f"${res.get('pnl', 0):+,.2f}" if res.get("pnl") is not None else "N/A"
         dur = f"{res.get('duration_seconds', 0):.1f}s"
         status = res.get("status", "unknown")
         rows.append([jid, status, sharpe, trades, pnl, dur])
@@ -121,7 +128,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     status = client.get_status()
-    print(f"Workers: {status.get('workers_idle')}/{status.get('workers_total')} Idle | Busy: {status.get('workers_busy')} | Queue: {status.get('queue_length')}")
+    print(
+        f"Workers: {status.get('workers_idle')}/{status.get('workers_total')} Idle | Busy: {status.get('workers_busy')} | Queue: {status.get('queue_length')}"
+    )
     print()
 
     jobs = status.get("jobs", [])
@@ -131,14 +140,16 @@ def cmd_status(args: argparse.Namespace) -> None:
 
     headers = ["Job ID", "Strategy", "Status", "Worker", "Submitted (UTC)"]
     rows = []
-    for j in jobs[:args.limit]:
-        rows.append([
-            j.get("id"),
-            j.get("config", {}).get("strategy_name", "N/A"),
-            j.get("status"),
-            j.get("worker_id") or "—",
-            j.get("submitted_at", "")[:19],
-        ])
+    for j in jobs[: args.limit]:
+        rows.append(
+            [
+                j.get("id"),
+                j.get("config", {}).get("strategy_name", "N/A"),
+                j.get("status"),
+                j.get("worker_id") or "—",
+                j.get("submitted_at", "")[:19],
+            ]
+        )
     print(_format_table(headers, rows))
 
 
@@ -176,11 +187,17 @@ def cmd_results(args: argparse.Namespace) -> None:
         headers = ["Job ID", "Status", "Sharpe", "Trades", "PnL", "Duration"]
         rows = []
         for res in results:
-            sharpe = f"{res.get('sharpe_ratio'):.2f}" if res.get('sharpe_ratio') is not None else "N/A"
-            trades = str(res.get('num_trades', "N/A"))
-            pnl = f"${res.get('pnl', 0):+,.2f}" if res.get('pnl') is not None else "N/A"
+            sharpe = (
+                f"{res.get('sharpe_ratio'):.2f}"
+                if res.get("sharpe_ratio") is not None
+                else "N/A"
+            )
+            trades = str(res.get("num_trades", "N/A"))
+            pnl = f"${res.get('pnl', 0):+,.2f}" if res.get("pnl") is not None else "N/A"
             dur = f"{res.get('duration_seconds', 0):.1f}s"
-            rows.append([res.get("job_id"), res.get("status"), sharpe, trades, pnl, dur])
+            rows.append(
+                [res.get("job_id"), res.get("status"), sharpe, trades, pnl, dur]
+            )
         print(_format_table(headers, rows))
 
 

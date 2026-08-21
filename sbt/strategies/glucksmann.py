@@ -1,15 +1,18 @@
 from datetime import date
 from decimal import Decimal
-from typing import Optional
 
 import pandas as pd
 from nautilus_trader.config import StrategyConfig
+from nautilus_trader.indicators import (
+    BollingerBands,
+    DonchianChannel,
+    SimpleMovingAverage,
+)
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
-from nautilus_trader.indicators import BollingerBands, SimpleMovingAverage, DonchianChannel
 
 
 class GlucksmannConfig(StrategyConfig, frozen=True):
@@ -63,7 +66,7 @@ class _RunningStats:
             return 0.0
         m = self.mean
         var = sum((x - m) ** 2 for x in self._values) / len(self._values)
-        return var ** 0.5
+        return var**0.5
 
     @property
     def initialized(self) -> bool:
@@ -92,19 +95,19 @@ class GlucksmannStrategy(Strategy):
         self.dc_10 = DonchianChannel(10)
         self.dc_5 = DonchianChannel(5)
 
-        self._prev_close: Optional[float] = None
-        self._prev_bb_upper: Optional[float] = None
-        self._prev_bb_lower: Optional[float] = None
-        self._prev_sma_100: Optional[float] = None
-        self._prev_sma_50: Optional[float] = None
+        self._prev_close: float | None = None
+        self._prev_bb_upper: float | None = None
+        self._prev_bb_lower: float | None = None
+        self._prev_sma_100: float | None = None
+        self._prev_sma_50: float | None = None
 
         self._in_position: bool = False
-        self._pos_side: Optional[OrderSide] = None
-        self._entry_price: Optional[float] = None
-        self._entry_candle_low: Optional[float] = None
-        self._entry_candle_high: Optional[float] = None
-        self._stop_price: Optional[float] = None
-        self._open_qty: Optional[Quantity] = None
+        self._pos_side: OrderSide | None = None
+        self._entry_price: float | None = None
+        self._entry_candle_low: float | None = None
+        self._entry_candle_high: float | None = None
+        self._stop_price: float | None = None
+        self._open_qty: Quantity | None = None
         self._just_closed: bool = False
 
         self._extreme_entry: bool = False
@@ -112,8 +115,8 @@ class GlucksmannStrategy(Strategy):
         self._current_weight: float = 1.0
         self._daily_returns: list[float] = []
         self._rv_history: list[float] = []
-        self._daily_close: Optional[float] = None
-        self._last_bar_date: Optional[date] = None
+        self._daily_close: float | None = None
+        self._last_bar_date: date | None = None
 
         self._wait_for_short: bool = False
         self._need_long_entry: bool = False
@@ -123,7 +126,9 @@ class GlucksmannStrategy(Strategy):
         self.subscribe_bars(self.bar_type)
 
     def _calc_qty(self, price: float) -> Quantity:
-        notional = float(self.config.capital) * self.config.leverage * self._current_weight
+        notional = (
+            float(self.config.capital) * self.config.leverage * self._current_weight
+        )
         raw_size = notional / price
         return Quantity(round(raw_size, 3), precision=3)
 
@@ -154,12 +159,14 @@ class GlucksmannStrategy(Strategy):
         return self.sma_200.value > self.sma_100.value > self.sma_50.value
 
     def _smas_ready(self) -> bool:
-        return all((
-            self.sma_20.initialized,
-            self.sma_50.initialized,
-            self.sma_100.initialized,
-            self.sma_200.initialized,
-        ))
+        return all(
+            (
+                self.sma_20.initialized,
+                self.sma_50.initialized,
+                self.sma_100.initialized,
+                self.sma_200.initialized,
+            )
+        )
 
     def _track_daily_return(self, bar_date: date) -> None:
         if self._last_bar_date is not None and bar_date != self._last_bar_date:
@@ -172,10 +179,14 @@ class GlucksmannStrategy(Strategy):
     def _rebalance(self) -> None:
         if len(self._daily_returns) < self.config.rv_lookback:
             return
-        rv = sum(r * r for r in self._daily_returns[-self.config.rv_lookback:])
+        rv = sum(r * r for r in self._daily_returns[-self.config.rv_lookback :])
         self._rv_history.append(rv)
         c = sum(self._rv_history) / len(self._rv_history)
-        self._current_weight = min(self.config.max_leverage, c / rv) if rv > 0 else self.config.max_leverage
+        self._current_weight = (
+            min(self.config.max_leverage, c / rv)
+            if rv > 0
+            else self.config.max_leverage
+        )
 
     def _enter_long(self, bar: Bar, close: float) -> None:
         qty = self._calc_qty(close)
@@ -272,7 +283,11 @@ class GlucksmannStrategy(Strategy):
             return
         if crossup_bb_bot and self._bbw() < self._vli_slow():
             self._wait_for_short = True
-        if self._wait_for_short and self._prev_sma_100 is not None and self._prev_sma_50 is not None:
+        if (
+            self._wait_for_short
+            and self._prev_sma_100 is not None
+            and self._prev_sma_50 is not None
+        ):
             sma100_crossdown_sma50 = (
                 self._prev_sma_100 >= self._prev_sma_50
                 and self.sma_100.value < self.sma_50.value
@@ -289,7 +304,13 @@ class GlucksmannStrategy(Strategy):
 
         # Generic milestone stopwins (apply to ALL entries)
         stop = hard_floor
-        for pct, trail in [(0.20, 0.15), (0.25, 0.20), (0.30, 0.25), (0.35, 0.30), (0.40, 0.35)]:
+        for pct, trail in [
+            (0.20, 0.15),
+            (0.25, 0.20),
+            (0.30, 0.25),
+            (0.35, 0.30),
+            (0.40, 0.35),
+        ]:
             if profit >= pct:
                 stop = max(stop, self._entry_price * (1 + trail))
 
@@ -328,8 +349,11 @@ class GlucksmannStrategy(Strategy):
 
     def on_bar(self, bar: Bar) -> None:
         if self.config.vol_scaling:
-            bar_date = pd.Timestamp(bar.ts_event, unit='ns', tz='UTC').date()
-            if self._last_bar_date is not None and bar_date.month != self._last_bar_date.month:
+            bar_date = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC").date()
+            if (
+                self._last_bar_date is not None
+                and bar_date.month != self._last_bar_date.month
+            ):
                 if len(self._daily_returns) >= self.config.rv_lookback:
                     self._rebalance()
             self._track_daily_return(bar_date)
@@ -371,23 +395,25 @@ class GlucksmannStrategy(Strategy):
             and self._prev_bb_lower is not None
         ):
             crossdown_bb_top = (
-                self._prev_close >= self._prev_bb_upper
-                and close < self.bb.upper
+                self._prev_close >= self._prev_bb_upper and close < self.bb.upper
             )
             crossdown_bb_bot = (
-                self._prev_close >= self._prev_bb_lower
-                and close < self.bb.lower
+                self._prev_close >= self._prev_bb_lower and close < self.bb.lower
             )
             crossup_bb_bot = (
-                self._prev_close <= self._prev_bb_lower
-                and close > self.bb.lower
+                self._prev_close <= self._prev_bb_lower and close > self.bb.lower
             )
 
             if self._in_position and self._pos_side == OrderSide.BUY:
                 if crossdown_bb_bot and self._vol_ok():
                     self._close_position()
 
-            if not self._in_position and not self._just_closed and self._smas_ready() and self._bbw_sma_200.initialized:
+            if (
+                not self._in_position
+                and not self._just_closed
+                and self._smas_ready()
+                and self._bbw_sma_200.initialized
+            ):
                 self._check_long_entry(close, crossdown_bb_top)
                 self._check_short_entry(close, crossup_bb_bot)
 

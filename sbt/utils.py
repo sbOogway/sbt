@@ -1,36 +1,39 @@
 from decimal import Decimal
-from typing import Type
 
-from nautilus_trader.model.currencies import BTC, USDC, USDT
-from nautilus_trader.model.identifiers import InstrumentId, Venue, Symbol
+from nautilus_trader.model.currencies import BTC, USDT
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.model.instruments import CryptoPerpetual
 from nautilus_trader.model.objects import Money, Price, Quantity
 
 
-def get_strategy_class(name: str) -> tuple[Type, Type]:
+def get_strategy_class(name: str) -> tuple[type, type]:
     if name == "bitcoin_intraday_momentum":
         from .strategies.bitcoin_intraday_momentum import (
             BitcoinIntradayMomentum,
             BitcoinIntradayMomentumConfig,
         )
+
         return BitcoinIntradayMomentum, BitcoinIntradayMomentumConfig
     elif name == "glucksmann":
         from .strategies.glucksmann import (
-            GlucksmannStrategy,
             GlucksmannConfig,
+            GlucksmannStrategy,
         )
+
         return GlucksmannStrategy, GlucksmannConfig
     elif name == "orb":
         from .strategies.orb import (
-            ORBStrategy,
             ORBConfig,
+            ORBStrategy,
         )
+
         return ORBStrategy, ORBConfig
     elif name == "overnight_drift":
         from .strategies.overnight_drift import (
             OvernightDrift,
             OvernightDriftConfig,
         )
+
         return OvernightDrift, OvernightDriftConfig
     else:
         raise ValueError(f"Unknown strategy: {name}")
