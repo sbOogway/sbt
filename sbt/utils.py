@@ -1,3 +1,4 @@
+import importlib
 from decimal import Decimal
 
 from nautilus_trader.model.currencies import BTC, USDT
@@ -5,45 +6,50 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.model.instruments import CryptoPerpetual
 from nautilus_trader.model.objects import Money, Price, Quantity
 
+_STRATEGY_REGISTRY = {
+    "bitcoin_intraday_momentum": (
+        "strategies.bitcoin_intraday_momentum",
+        "BitcoinIntradayMomentum",
+        "BitcoinIntradayMomentumConfig",
+    ),
+    "glucksmann": (
+        "strategies.glucksmann",
+        "GlucksmannStrategy",
+        "GlucksmannConfig",
+    ),
+    "orb": (
+        "strategies.orb",
+        "ORBStrategy",
+        "ORBConfig",
+    ),
+    "overnight_drift": (
+        "strategies.overnight_drift",
+        "OvernightDrift",
+        "OvernightDriftConfig",
+    ),
+    "l2_order_imbalance": (
+        "strategies.l2_order_imbalance",
+        "L2OrderImbalance",
+        "L2OrderImbalanceConfig",
+    ),
+}
+
+
+def get_strategy_names() -> list[str]:
+    return list(_STRATEGY_REGISTRY)
+
 
 def get_strategy_class(name: str) -> tuple[type, type]:
-    if name == "bitcoin_intraday_momentum":
-        from .strategies.bitcoin_intraday_momentum import (
-            BitcoinIntradayMomentum,
-            BitcoinIntradayMomentumConfig,
-        )
-
-        return BitcoinIntradayMomentum, BitcoinIntradayMomentumConfig
-    elif name == "glucksmann":
-        from .strategies.glucksmann import (
-            GlucksmannConfig,
-            GlucksmannStrategy,
-        )
-
-        return GlucksmannStrategy, GlucksmannConfig
-    elif name == "orb":
-        from .strategies.orb import (
-            ORBConfig,
-            ORBStrategy,
-        )
-
-        return ORBStrategy, ORBConfig
-    elif name == "overnight_drift":
-        from .strategies.overnight_drift import (
-            OvernightDrift,
-            OvernightDriftConfig,
-        )
-
-        return OvernightDrift, OvernightDriftConfig
-    elif name == "l2_order_imbalance":
-        from .strategies.l2_order_imbalance import (
-            L2OrderImbalance,
-            L2OrderImbalanceConfig,
-        )
-
-        return L2OrderImbalance, L2OrderImbalanceConfig
-    else:
+    entry = _STRATEGY_REGISTRY.get(name)
+    if entry is None:
         raise ValueError(f"Unknown strategy: {name}")
+
+    module_name, strategy_cls_name, config_cls_name = entry
+    module = importlib.import_module(f".{module_name}", package=__package__)
+    return (
+        getattr(module, strategy_cls_name),
+        getattr(module, config_cls_name),
+    )
 
 
 def make_perpetual(

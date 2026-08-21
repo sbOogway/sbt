@@ -3,10 +3,10 @@
 import argparse
 import sys
 import time
-import tomllib
 from pathlib import Path
 
 from ..core.config import RunConfig
+from ..utils import get_strategy_names
 from .client import SbtClient
 
 
@@ -49,9 +49,6 @@ def cmd_submit(args: argparse.Namespace) -> None:
         print(f"ERROR: Config file not found: {cfg_path}")
         sys.exit(1)
 
-    with cfg_path.open("rb") as f:
-        cfg = tomllib.load(f)
-
     overrides = {
         "exchange": args.exchange,
         "symbol": args.symbol,
@@ -62,9 +59,9 @@ def cmd_submit(args: argparse.Namespace) -> None:
     }
 
     if args.all_strategies:
-        strategies = list(cfg.get("strategy", {}).keys())
+        strategies = get_strategy_names()
         if not strategies:
-            print("No strategies defined in config.toml [strategy.*] sections.")
+            print("No strategies registered in sbt.utils._STRATEGY_REGISTRY.")
             sys.exit(1)
         configs = [
             RunConfig.from_toml(args.config, strat, overrides) for strat in strategies

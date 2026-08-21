@@ -11,16 +11,3 @@ settle_currency = "USDT"
 slippage_ticks = 2
 tick_size = 0.01
 
-[strategy.overnight_drift]
-entry_time = "20:00"
-exit_time = "14:00"
-vol_scaling = true
-rv_lookback = 5
-vol_max_scale = 2
-weekdays_only = true
-funding_enabled = false
-
-[strategy.l2_order_imbalance]
-imbalance_threshold = 0.6
-trade_size = 0.01
-cooldown_events = 50

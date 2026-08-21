@@ -125,8 +125,6 @@ class RunConfig:
             cfg = tomllib.load(f)
 
         run = cfg.get("run", {})
-        all_strat = cfg.get("strategy", {})
-        strat_params = dict(all_strat.get(strategy_name, {}))
 
         overrides = {k: v for k, v in (cli_overrides or {}).items() if v is not None}
 
@@ -141,7 +139,7 @@ class RunConfig:
             symbol=symbol,
             interval=overrides.get("interval", run.get("interval", "5m")),
             strategy_name=strategy_name,
-            strategy_params=strat_params,
+            strategy_params={},
             capital=Decimal(str(run.get("capital", "1000"))),
             leverage=float(overrides.get("leverage", run.get("leverage", 1.0))),
             start=overrides.get("start", run.get("start", "2020-01-01")),

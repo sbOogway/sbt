@@ -18,8 +18,8 @@ class L2OrderImbalanceConfig(StrategyConfig, frozen=True):
     backtest_start_date: str = "2020-01-01"
 
     imbalance_threshold: float = 0.6  # Imbalance threshold: (bid - ask) / (bid + ask)
-    trade_size: float = 0.01
-    cooldown_events: int = 100
+    trade_size: float = 0.1
+    cooldown_events: int = 50
 
 
 class L2OrderImbalance(Strategy):

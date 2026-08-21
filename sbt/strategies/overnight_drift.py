@@ -21,13 +21,13 @@ class OvernightDriftConfig(StrategyConfig, frozen=True):
     backtest_start_date: str = "2020-01-01"
 
     entry_time: str = "20:00"
-    exit_time: str = "06:00"
+    exit_time: str = "14:00"
 
     vol_scaling: bool = True
-    rv_lookback: int = 22
-    vol_max_scale: float = 0.0
-    weekdays_only: bool = False
-    funding_enabled: bool = True
+    rv_lookback: int = 5
+    vol_max_scale: float = 2.0
+    weekdays_only: bool = True
+    funding_enabled: bool = False
 
 
 class OvernightDrift(Strategy):

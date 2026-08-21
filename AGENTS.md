@@ -59,10 +59,11 @@ uv run python3 -m sbt.client optimize --config config.toml --strategy overnight_
 
 ## Adding a Strategy
 
-1. Create `sbt/strategies/<name>.py` with `<Name>Config(StrategyConfig, frozen=True)` and `<Name>(Strategy)`.
-2. Register in `sbt/utils.py` `get_strategy_class()`.
-3. Add `[strategy.<name>]` section in `config.toml`.
-4. Run: `uv run python3 -m sbt --strategy <name>` or submit via `sbt.client`.
+1. Create `sbt/strategies/<name>.py` with `<Name>Config(StrategyConfig, frozen=True)` and `<Name>(Strategy)`. All tunable parameters and their defaults live in `<Name>Config`.
+2. Register in `sbt/utils.py` `_STRATEGY_REGISTRY`.
+3. Run: `uv run python3 -m sbt --strategy <name>` or submit via `sbt.client`.
+
+Strategy parameters are **not** configured via `config.toml` — the `[strategy.*]` sections were removed; the strategy file is the single source of truth. Per-run overrides only happen through the optimizer (`--param`) / server (`with_overrides`).
 
 ## Structure
 
