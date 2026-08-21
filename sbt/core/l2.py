@@ -3,6 +3,7 @@
 import glob
 import logging
 from pathlib import Path
+import re
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -61,6 +62,24 @@ def load_l2_instrument(instrument_id: str, catalog_dir: str = "data") -> Instrum
     return insts[0]
 
 
+_FILE_TS_PATTERN = re.compile(
+    r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d+)Z$"
+)
+
+
+def _parse_file_timestamp(stem_part: str) -> pd.Timestamp | None:
+    """Parse a filename timestamp like ``2026-07-28T14-53-47-373180579Z``."""
+    m = _FILE_TS_PATTERN.match(stem_part)
+    if not m:
+        return None
+    y, mo, d, h, mi, s, frac = m.groups()
+    iso = f"{y}-{mo}-{d}T{h}:{mi}:{s}.{frac}"
+    try:
+        return pd.Timestamp(iso, tz="UTC")
+    except ValueError:
+        return None
+
+
 def _filter_files_by_time(
     files: list[str],
     start: str | None = None,
@@ -70,27 +89,22 @@ def _filter_files_by_time(
     if not start and not end:
         return files
 
-    start_ts = pd.Timestamp(start, tz="UTC").value if start else None
-    end_ts = pd.Timestamp(end, tz="UTC").value if end else None
+    start_ts = pd.Timestamp(start, tz="UTC") if start else None
+    end_ts = pd.Timestamp(end, tz="UTC") if end else None
 
     filtered = []
     for f in files:
-        stem = Path(f).stem
-        parts = stem.split("_")
+        parts = Path(f).stem.split("_")
         if len(parts) == 2:
-            try:
-                # ISO timestamp: YYYY-MM-DDTHH-MM-SS-...Z
-                t0_str = parts[0].replace("-", "", 2).replace("T", " ")
-                # If valid, check overlap
-                file_start = pd.Timestamp(parts[0].replace("-", ":", 2), tz="UTC").value
-                file_end = pd.Timestamp(parts[1].replace("-", ":", 2), tz="UTC").value
-
+            file_start = _parse_file_timestamp(parts[0])
+            file_end = _parse_file_timestamp(parts[1])
+            # Only apply overlap logic when both timestamps parsed cleanly;
+            # otherwise fall open and let row-level filtering decide.
+            if file_start is not None and file_end is not None:
                 if start_ts and file_end < start_ts:
                     continue
                 if end_ts and file_start > end_ts:
                     continue
-            except Exception:
-                pass
         filtered.append(f)
     return filtered
 
