@@ -35,6 +35,13 @@ def get_strategy_class(name: str) -> tuple[type, type]:
         )
 
         return OvernightDrift, OvernightDriftConfig
+    elif name == "l2_order_imbalance":
+        from .strategies.l2_order_imbalance import (
+            L2OrderImbalance,
+            L2OrderImbalanceConfig,
+        )
+
+        return L2OrderImbalance, L2OrderImbalanceConfig
     else:
         raise ValueError(f"Unknown strategy: {name}")
 
