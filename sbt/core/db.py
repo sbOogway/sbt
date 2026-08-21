@@ -43,6 +43,7 @@ class ResultStore:
                 sharpe_ratio      REAL,
                 num_trades        INTEGER,
                 pnl               REAL,
+                sqn               REAL,
                 stats_json        TEXT,
                 equity_curve_json TEXT,
                 positions_json    TEXT,
@@ -53,6 +54,11 @@ class ResultStore:
                 funding_pnl       REAL DEFAULT 0.0
             );
         """)
+        existing_cols = {
+            row[1] for row in self.conn.execute("PRAGMA table_info(results)").fetchall()
+        }
+        if "sqn" not in existing_cols:
+            self.conn.execute("ALTER TABLE results ADD COLUMN sqn REAL")
         self.conn.commit()
 
     # ------------------------------------------------------------------
@@ -125,16 +131,17 @@ class ResultStore:
         """Insert or replace a result record."""
         self.conn.execute(
             """INSERT OR REPLACE INTO results
-               (job_id, status, sharpe_ratio, num_trades, pnl,
+               (job_id, status, sharpe_ratio, num_trades, pnl, sqn,
                 stats_json, equity_curve_json, positions_json, fills_json,
                 tearsheet_path, error, duration_seconds, funding_pnl)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 result.job_id,
                 result.status.value,
                 result.sharpe_ratio,
                 result.num_trades,
                 result.pnl,
+                result.sqn,
                 json.dumps(result.stats, default=str),
                 json.dumps(result.equity_curve, default=str),
                 json.dumps(result.positions, default=str),
@@ -174,6 +181,7 @@ class ResultStore:
             sharpe_ratio=row["sharpe_ratio"],
             num_trades=row["num_trades"],
             pnl=row["pnl"],
+            sqn=row["sqn"],
             stats=json.loads(row["stats_json"] or "{}"),
             equity_curve=json.loads(row["equity_curve_json"] or "[]"),
             positions=json.loads(row["positions_json"] or "[]"),

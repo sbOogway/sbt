@@ -237,4 +237,5 @@ def cmd_optimize(args: argparse.Namespace) -> None:
         db_path=args.db,
         port=args.port,
         output_report=args.report,
+        objective=args.objective,
     )

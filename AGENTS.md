@@ -33,8 +33,11 @@ uv run python3 -m sbt.client results --job <job_id>
 # Multi-strategy comparison dashboard
 uv run python3 -m sbt.client compare --jobs <id1,id2,id3>
 
-# Optuna multi-objective hyperparameter optimization (Sharpe + Trades + PnL Pareto front)
+# Optuna hyperparameter optimization
+#   --objective sharpe (default): 3-objective Pareto front (Sharpe + Trades + PnL)
+#   --objective sqn: pure single-objective maximization of Van Tharp's System Quality Number
 uv run python3 -m sbt.client optimize --config config.toml --strategy overnight_drift --trials 50 \
+  --objective sqn \
   --param "rv_lookback=int(3,30)" \
   --param "vol_max_scale=float(1.0,4.0)"
 ```

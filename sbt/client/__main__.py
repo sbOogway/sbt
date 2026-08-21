@@ -86,9 +86,15 @@ def main():
     )
     sub_opt.add_argument("--db", default="sbt.db", help="SQLite database path")
     sub_opt.add_argument(
+        "--objective",
+        choices=["sharpe", "sqn"],
+        default="sharpe",
+        help="Optimization objective: 'sharpe' = (Sharpe, Trades, PnL) Pareto front, 'sqn' = pure Van Tharp System Quality Number (default: sharpe)",
+    )
+    sub_opt.add_argument(
         "--report",
-        default="reports/pareto_report.html",
-        help="Output Pareto HTML report path",
+        default=None,
+        help="Output HTML report path (default: reports/pareto_report.html or reports/sqn_report.html)",
     )
     sub_opt.set_defaults(func=cmd_optimize)
 

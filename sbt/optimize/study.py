@@ -1,4 +1,9 @@
-"""Orchestrates Optuna multi-objective optimization studies."""
+"""Orchestrates Optuna optimization studies.
+
+Two objective modes:
+- 'sharpe': 3-objective Pareto front (Sharpe, Trades, PnL) — the default.
+- 'sqn': single-objective maximization of Van Tharp's System Quality Number.
+"""
 
 import datetime
 from pathlib import Path
@@ -8,7 +13,7 @@ import optuna
 from ..core.config import RunConfig
 from ..core.runner import BacktestRunner
 from .param_parser import parse_param_spec, suggest_params
-from .report import generate_pareto_report
+from .report import generate_pareto_report, generate_sqn_report
 
 
 def run_optuna_study(
@@ -18,9 +23,20 @@ def run_optuna_study(
     params: list[str],
     db_path: str = "sbt.db",
     port: int = 5555,
-    output_report: str = "reports/pareto_report.html",
+    output_report: str | None = None,
+    objective: str = "sharpe",
 ) -> optuna.Study:
-    """Run a multi-objective hyperparameter optimization study."""
+    """Run an Optuna optimization study for *strategy_name*.
+
+    objective='sharpe' maximizes the (Sharpe, Trades, PnL) Pareto front;
+    objective='sqn' purely maximizes the System Quality Number computed
+    from per-trade returns.
+    """
+    if objective not in ("sharpe", "sqn"):
+        raise ValueError(
+            f"Unknown objective: {objective!r}. Expected 'sharpe' or 'sqn'."
+        )
+
     base_config = RunConfig.from_toml(config_path, strategy_name)
 
     if not params:
@@ -53,50 +69,74 @@ def run_optuna_study(
             )
 
     param_space = parse_param_spec(params)
+    primary_label = (
+        "Sharpe Ratio" if objective == "sharpe" else "System Quality Number"
+    )
+
     print(f"\n--- Starting Optuna Optimization for '{strategy_name}' ---")
+    print(f"Objective mode: {objective} ({primary_label})")
     print(f"Total Trials: {n_trials}")
     print("Parameter Search Space:")
     for k, v in param_space.items():
         print(f"  - {k}: {v}")
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    study_name = f"opt_{strategy_name}_{timestamp}"
+    study_name = f"opt_{strategy_name}_{objective}_{timestamp}"
     storage_url = f"sqlite:///{Path(db_path).resolve()}"
 
+    directions = (
+        ["maximize", "maximize", "maximize"] if objective == "sharpe" else ["maximize"]
+    )
     study = optuna.create_study(
         study_name=study_name,
         storage=storage_url,
-        directions=["maximize", "maximize", "maximize"],
+        directions=directions,
         sampler=optuna.samplers.TPESampler(),
         load_if_exists=True,
     )
 
-    def objective(trial: optuna.Trial) -> tuple[float, float, float]:
+    def evaluate(trial: optuna.Trial) -> tuple[float, float, float]:
         trial_params = suggest_params(trial, param_space)
         config = base_config.with_overrides(trial_params)
 
         runner = BacktestRunner(config)
         result = runner.run(job_id=f"trial_{trial.number}")
 
-        sharpe = result.sharpe_ratio or 0.0
+        primary = (
+            result.sqn if objective == "sqn" else result.sharpe_ratio
+        ) or 0.0
         trades = float(result.num_trades or 0)
         pnl = result.pnl or 0.0
 
         print(
-            f"[Trial #{trial.number:03d}] Sharpe: {sharpe:+.2f} | Trades: {int(trades):3d} | PnL: ${pnl:+,.2f} | Params: {trial_params}"
+            f"[Trial #{trial.number:03d}] {primary_label}: {primary:+.2f} | Trades: {int(trades):3d} | PnL: ${pnl:+,.2f} | Params: {trial_params}"
         )
-        return (sharpe, trades, pnl)
+        return (primary, trades, pnl)
 
-    study.optimize(objective, n_trials=n_trials)
+    def objective_fn(trial: optuna.Trial):
+        values = evaluate(trial)
+        return values[0] if objective == "sqn" else values
+
+    study.optimize(objective_fn, n_trials=n_trials)
 
     print("\n========== OPTIMIZATION COMPLETE ==========")
     print(f"Completed {len(study.trials)} trials.")
-    print(f"Found {len(study.best_trials)} Pareto-optimal solutions.")
-
-    report_path = generate_pareto_report(
-        study=study,
-        strategy_name=strategy_name,
-        output_path=output_report,
-    )
-    print(f"Pareto frontier report generated: {report_path}")
+    if objective == "sqn":
+        best = study.best_trial
+        print(
+            f"Best trial #{best.number}: SQN {best.value:+.4f} | Params: {best.params}"
+        )
+        report_path = generate_sqn_report(
+            study=study,
+            strategy_name=strategy_name,
+            output_path=output_report or "reports/sqn_report.html",
+        )
+    else:
+        print(f"Found {len(study.best_trials)} Pareto-optimal solutions.")
+        report_path = generate_pareto_report(
+            study=study,
+            strategy_name=strategy_name,
+            output_path=output_report or "reports/pareto_report.html",
+        )
+    print(f"Report generated: {report_path}")
     return study

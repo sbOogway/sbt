@@ -1,5 +1,26 @@
+import math
+from collections.abc import Sequence
+
 import pandas as pd
 from nautilus_trader.analysis.statistic import PortfolioStatistic
+
+
+def system_quality_number(trade_returns: Sequence[float]) -> float | None:
+    """Van Tharp's System Quality Number over per-trade returns.
+
+    SQN = sqrt(N) * mean(R) / stddev(R) with sample stddev (ddof=1).
+    Returns None when there are fewer than 2 trades or zero dispersion.
+    """
+    r = [float(x) for x in trade_returns if x is not None]
+    n = len(r)
+    if n < 2:
+        return None
+    mean = sum(r) / n
+    var = sum((x - mean) ** 2 for x in r) / (n - 1)
+    std = math.sqrt(var)
+    if std < 1e-12:
+        return None
+    return math.sqrt(n) * mean / std
 
 
 class CalmarRatio(PortfolioStatistic):

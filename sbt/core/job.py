@@ -75,6 +75,7 @@ class BacktestResult:
     sharpe_ratio: float | None = None
     num_trades: int | None = None
     pnl: float | None = None
+    sqn: float | None = None
     # --- full engine output ---
     stats: dict = field(default_factory=dict)
     equity_curve: list[dict] = field(default_factory=list)
@@ -93,6 +94,7 @@ class BacktestResult:
             "sharpe_ratio": self.sharpe_ratio,
             "num_trades": self.num_trades,
             "pnl": self.pnl,
+            "sqn": self.sqn,
             "stats": self.stats,
             "equity_curve": self.equity_curve,
             "positions": self.positions,
@@ -112,6 +114,7 @@ class BacktestResult:
             sharpe_ratio=d.get("sharpe_ratio"),
             num_trades=d.get("num_trades"),
             pnl=d.get("pnl"),
+            sqn=d.get("sqn"),
             stats=d.get("stats", {}),
             equity_curve=d.get("equity_curve", []),
             positions=d.get("positions", []),

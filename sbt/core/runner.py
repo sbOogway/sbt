@@ -27,7 +27,7 @@ from nautilus_trader.model.enums import AccountType, BookType, OmsType
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money, Price, Quantity
 
-from ..stats import AnnualizedReturn, CalmarRatio
+from ..stats import AnnualizedReturn, CalmarRatio, system_quality_number
 from ..stats import RunConfig as RunConfigStat
 from ..utils import get_strategy_class, make_perpetual, parse_interval
 from .config import RunConfig
@@ -382,6 +382,15 @@ class BacktestRunner:
         positions_df = engine.trader.generate_positions_report()
         fills_df = engine.trader.generate_fills_report()
 
+        # Van Tharp SQN over per-trade returns of closed positions
+        sqn = None
+        if len(positions_df) and "realized_return" in positions_df.columns:
+            closed = positions_df
+            if "ts_closed" in closed.columns:
+                closed = closed[closed["ts_closed"].notna()]
+            rets = pd.to_numeric(closed["realized_return"], errors="coerce").dropna()
+            sqn = system_quality_number(rets.tolist())
+
         # Extract optimisation objectives
         pnl = stats_pnls.get("PnL (total)")
         sharpe = stats_returns.get("Sharpe Ratio (252 days)")
@@ -400,6 +409,7 @@ class BacktestRunner:
             sharpe_ratio=float(sharpe) if sharpe is not None else None,
             num_trades=num_trades,
             pnl=float(pnl) if pnl is not None else None,
+            sqn=sqn,
             stats=all_stats,
             equity_curve=[],  # populated by report layer if needed
             positions=positions_df.to_dict("records") if len(positions_df) else [],
