@@ -11,3 +11,6 @@ wheels/
 
 data/
 reports/
+.worktrees/
+*.db
+*.db-journal
