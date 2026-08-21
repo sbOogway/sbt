@@ -28,7 +28,7 @@ class ORBConfig(StrategyConfig, frozen=True):
 
     vol_scaling: bool = True
     rv_lookback: int = 30
-    max_leverage: float = 100.0
+    max_leverage: float = 3
 
 
 class ORBStrategy(Strategy):
