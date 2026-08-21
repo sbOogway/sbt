@@ -1,17 +1,16 @@
 from decimal import Decimal
 
 import pandas as pd
-from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
-from ..volatility import VolatilityScaler
+from ..plugins import PluginHost, SBTStrategyConfig
 
 
-class BitcoinIntradayMomentumConfig(StrategyConfig, frozen=True):
+class BitcoinIntradayMomentumConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
     capital: Decimal
@@ -23,9 +22,12 @@ class BitcoinIntradayMomentumConfig(StrategyConfig, frozen=True):
     slh_open_time: str = "16:00"
     slh_close_time: str = "16:30"
 
-    vol_scaling: bool = True
+    plugins: tuple[str, ...] = ("vol_scaling",)
+    # Returns are fed manually at the 17:00 US/Eastern close so sampling is
+    # tied to that timezone (DST-aware), not fixed UTC boundaries.
+    vol_track_daily: bool = False
     rv_lookback: int = 30
-    max_leverage: float = 0.0
+    vol_max_scale: float = 2.0
 
 
 class BitcoinIntradayMomentum(Strategy):
@@ -43,16 +45,10 @@ class BitcoinIntradayMomentum(Strategy):
         self.current_position_side: OrderSide | None = None
         self._open_qty: Quantity | None = None
 
-        self._vol_scaler = (
-            VolatilityScaler(
-                rv_lookback=config.rv_lookback,
-                max_leverage=config.max_leverage,
-            )
-            if config.vol_scaling
-            else None
-        )
+        self.plugins = PluginHost.from_config(config)
 
     def on_start(self) -> None:
+        self.plugins.on_start(self)
         self.subscribe_bars(self.config.bar_type)
 
     def on_bar(self, bar: Bar) -> None:
@@ -77,17 +73,10 @@ class BitcoinIntradayMomentum(Strategy):
         if time_str == "17:00":
             self.close_positions()
             close_val = Decimal(bar.close.as_double())
-            if (
-                self.config.vol_scaling
-                and self.prev_close is not None
-                and self._vol_scaler is not None
-            ):
+            scaler = self.plugins.get("vol_scaling")
+            if scaler is not None and self.prev_close is not None:
                 daily_ret = float(close_val / self.prev_close) - 1.0
-                self._vol_scaler.add_return(daily_ret)
-                dt_today = dt_est.date()
-                dt_tomorrow = dt_today + pd.Timedelta(days=1)
-                if dt_tomorrow.month != dt_today.month:
-                    self._vol_scaler.rebalance(dt_tomorrow.month)
+                scaler.add_return(daily_ret)
             self.prev_close = close_val
 
     def evaluate_signal_and_trade(self, price: Decimal) -> None:
@@ -109,11 +98,7 @@ class BitcoinIntradayMomentum(Strategy):
         self._open_qty = None
 
     def _open_trade(self, order_side: OrderSide, price: Decimal) -> None:
-        weight = (
-            Decimal(self._vol_scaler.weight)
-            if self._vol_scaler is not None
-            else Decimal(1.0)
-        )
+        weight = Decimal(str(self.plugins.size_multiplier()))
         notional = self.config.capital * Decimal(self.config.leverage) * weight
         raw_size = notional / price
         self._open_qty = Quantity(round(float(raw_size), 3), precision=3)

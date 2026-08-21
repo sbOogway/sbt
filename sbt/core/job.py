@@ -85,6 +85,9 @@ class BacktestResult:
     error: str | None = None
     duration_seconds: float = 0.0
     funding_pnl: float = 0.0
+    # Per-window metrics when a runner plugin split the job into windows
+    # (e.g. train/val holdout): {"in_sample": {...}, "out_of_sample": {...}}.
+    splits: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Convert BacktestResult to a JSON-serializable dictionary."""
@@ -103,6 +106,7 @@ class BacktestResult:
             "error": self.error,
             "duration_seconds": self.duration_seconds,
             "funding_pnl": self.funding_pnl,
+            "splits": self.splits,
         }
 
     @classmethod
@@ -123,4 +127,5 @@ class BacktestResult:
             error=d.get("error"),
             duration_seconds=d.get("duration_seconds", 0.0),
             funding_pnl=d.get("funding_pnl", 0.0),
+            splits=d.get("splits", {}),
         )

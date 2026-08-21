@@ -1,16 +1,15 @@
 from decimal import Decimal
 
-from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
-from ..volatility import VolatilityScaler
+from ..plugins import PluginHost, SBTStrategyConfig
 
 
-class KeyBreakoutConfig(StrategyConfig, frozen=True):
+class KeyBreakoutConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
     capital: Decimal
@@ -29,7 +28,7 @@ class KeyBreakoutConfig(StrategyConfig, frozen=True):
 
     risk_per_trade: float = 0.01
 
-    vol_scaling: bool = True
+    plugins: tuple[str, ...] = ("vol_scaling",)
     rv_lookback: int = 22
     vol_max_scale: float = 2.0
 
@@ -61,22 +60,16 @@ class KeyBreakout(Strategy):
         self._bars_held: int = 0
         self._open_qty: Quantity | None = None
 
-        self._vol_scaler = (
-            VolatilityScaler(
-                rv_lookback=config.rv_lookback,
-                vol_max_scale=config.vol_max_scale,
-            )
-            if config.vol_scaling
-            else None
-        )
+        self.plugins = PluginHost.from_config(config)
 
     def on_start(self) -> None:
+        self.plugins.on_start(self)
         self.subscribe_bars(self.bar_type)
 
     def _calc_qty(self, stop_distance: float) -> Quantity | None:
         if stop_distance <= 0:
             return None
-        weight = self._vol_scaler.weight if self._vol_scaler else 1.0
+        weight = self.plugins.size_multiplier()
         risk_amount = (
             float(self.config.capital)
             * self.config.leverage
@@ -204,13 +197,12 @@ class KeyBreakout(Strategy):
                 self._setup_low = low
 
     def on_bar(self, bar: Bar) -> None:
+        self.plugins.on_bar(self, bar)
+
         high = bar.high.as_double()
         low = bar.low.as_double()
         close = bar.close.as_double()
         open_ = bar.open.as_double()
-
-        if self._vol_scaler is not None and self._prev_close is not None:
-            self._vol_scaler.add_return(close / self._prev_close - 1.0)
 
         self._update_atr(high, low, close)
 

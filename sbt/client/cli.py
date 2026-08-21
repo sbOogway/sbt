@@ -56,6 +56,7 @@ def cmd_submit(args: argparse.Namespace) -> None:
         "leverage": args.leverage,
         "start": args.start,
         "feather": args.feather,
+        "train_val_split": getattr(args, "train_val_split", None),
     }
 
     if args.all_strategies:

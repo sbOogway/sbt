@@ -40,6 +40,11 @@ uv run python3 -m sbt.client optimize --config config.toml --strategy overnight_
   --objective sqn \
   --param "rv_lookback=int(3,30)" \
   --param "vol_max_scale=float(1.0,4.0)"
+
+# Train/validation holdout split (70% in-sample / 30% out-of-sample)
+# Runs both windows; top-level result metrics = out-of-sample; per-window
+# stats under `splits` and one tearsheet per window.
+uv run python3 -m sbt --config config.toml --strategy key_breakout --train-val-split 0.7
 ```
 
 - `--strategy` defaults to `bitcoin_intraday_momentum` if omitted.
@@ -53,16 +58,26 @@ uv run python3 -m sbt.client optimize --config config.toml --strategy overnight_
 - **Instrument factory**: `make_perpetual()` in `sbt/utils.py` (`price_precision=1`, `size_precision=3`).
 - **Slippage in ticks**: `slippage_ticks * tick_size / ref_price * 10000` bps added to `taker_fee`.
 - **Funding rates** tracked as metadata side-channel; does not flow through engine PnL.
-- **Vol scaling** is rolling (daily), not monthly — `add_return()` updates weight each call.
-- **Position sizing**: `risk_percent * current_equity * leverage * vol_weight` (compounding).
+- **Plugins**: strategies opt in via the flat `plugins: tuple[str, ...]` field on their config (e.g. `("vol_scaling",)`); plugin params stay flat on the config so optimizer specs keep working. Registry in `sbt/plugins/__init__.py`.
+- **Vol scaling** is a plugin (`VolScalingPlugin`, Moreira & Muir rolling RV). Feeding modes: automatic daily close-to-close tracking (`vol_track_daily=True`) or manual `plugin.add_return()` when sampling follows a specific time/timezone. `vol_rebalance_freq` = `"daily"` (default) or `"monthly"` (weight refresh on month starts).
+- **Position sizing**: `risk_percent * current_equity * leverage * plugins.size_multiplier()` (compounding).
 - **FillModel**: `FillModel(prob_slippage=1.0)` when `slippage_ticks > 0` (1 tick nautilus slippage).
 - **Data files** (`.feather`) auto-detected by `{exchange}_{symbol}_{interval}_*.feather` pattern in `data/` or `./`. Funding files matched by `*funding*` in path.
 - **Tearsheets** saved to `reports/` and auto-opened via `webbrowser`.
 - `data/`, `reports/`, `.worktrees/`, `*.db` are gitignored.
 
+## Plugins
+
+Strategy-level plugins (`sbt/plugins/base.py`) receive forwarded lifecycle events from a `PluginHost` and may implement `SizingPlugin.size_multiplier()`. Runner-level plugins expand one job into windows.
+
+Adding a strategy-level plugin:
+1. Create `sbt/plugins/<name>.py` with `<Name>Plugin(StrategyPlugin)` (or `SizingPlugin`) and a unique `name` ClassVar. Params are read off the host strategy's config via `getattr` defaults.
+2. Register in `sbt/plugins/__init__.py` `_PLUGIN_REGISTRY`.
+3. Strategies enable it by adding the name to their `plugins` tuple; document any new config fields on each adopting strategy's `<Name>Config`.
+
 ## Adding a Strategy
 
-1. Create `sbt/strategies/<name>.py` with `<Name>Config(StrategyConfig, frozen=True)` and `<Name>(Strategy)`. All tunable parameters and their defaults live in `<Name>Config`.
+1. Create `sbt/strategies/<name>.py` with `<Name>Config(SBTStrategyConfig, kw_only=True, frozen=True)` and `<Name>(Strategy)`. All tunable parameters and their defaults live in `<Name>Config`. Set `plugins` defaults there (e.g. `plugins: tuple[str, ...] = ("vol_scaling",)`), instantiate `self.plugins = PluginHost.from_config(config)`, forward `self.plugins.on_bar(self, bar)`, and size via `self.plugins.size_multiplier()`. Note: `kw_only=True` is required — msgspec does not inherit it, and overriding an inherited field without it breaks struct construction.
 2. Register in `sbt/utils.py` `_STRATEGY_REGISTRY`.
 3. Run: `uv run python3 -m sbt --strategy <name>` or submit via `sbt.client`.
 
@@ -77,10 +92,13 @@ sbt/
 ├── report.py               HTML tearsheet + TradingView chart
 ├── stats.py                Custom portfolio statistics
 ├── utils.py                Strategy loader, instrument factory
-├── volatility.py           Moreira & Muir rolling vol scaling
+├── plugins/                Plugin system
+│   ├── base.py             SBTStrategyConfig, StrategyPlugin/SizingPlugin ABCs, PluginHost
+│   ├── vol_scaling.py      VolScalingPlugin (Moreira & Muir rolling RV)
+│   └── train_val_split.py  Runner-level IS/OOS holdout split
 ├── core/                   Extracted backtest primitives
 │   ├── config.py           RunConfig dataclass (TOML + CLI → config)
-│   ├── runner.py           BacktestRunner (engine setup + execution)
+│   ├── runner.py           BacktestRunner (engine setup + execution, window splitting)
 │   ├── job.py              BacktestJob / BacktestResult models
 │   └── db.py               SQLite result store
 ├── server/                 Scheduler daemon + git worktree supervisor
@@ -101,6 +119,8 @@ sbt/
     ├── overnight_drift.py
     ├── bitcoin_intraday_momentum.py
     ├── glucksmann.py
+    ├── key_breakout.py
+    ├── l2_order_imbalance.py
     └── orb.py
 papers/                     Reference PDFs (not code)
 data/                       .feather files (gitignored)

@@ -42,6 +42,12 @@ def main():
     sub_submit.add_argument("--leverage", help="Override leverage")
     sub_submit.add_argument("--start", help="Override start date")
     sub_submit.add_argument("--feather", help="Override feather path")
+    sub_submit.add_argument(
+        "--train-val-split",
+        type=float,
+        metavar="FRACTION",
+        help="Holdout split: in-sample fraction (e.g. 0.7)",
+    )
     sub_submit.set_defaults(func=cmd_submit)
 
     # status

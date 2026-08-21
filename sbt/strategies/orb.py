@@ -2,17 +2,16 @@ from datetime import date
 from decimal import Decimal
 
 import pandas as pd
-from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
-from ..volatility import VolatilityScaler
+from ..plugins import PluginHost, SBTStrategyConfig
 
 
-class ORBConfig(StrategyConfig, frozen=True):
+class ORBConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
     capital: Decimal
@@ -25,9 +24,9 @@ class ORBConfig(StrategyConfig, frozen=True):
     atr_stop_multiple: float = 0.5
     risk_per_trade: float = 0.01
 
-    vol_scaling: bool = True
+    plugins: tuple[str, ...] = ("vol_scaling",)
     rv_lookback: int = 30
-    max_leverage: float = 3
+    vol_max_scale: float = 3.0
 
 
 class ORBStrategy(Strategy):
@@ -62,20 +61,17 @@ class ORBStrategy(Strategy):
         self._stop_price: float | None = None
         self._position_qty: Quantity | None = None
 
-        # Volatility scaling (Moreira & Muir)
-        self._vol_scaler = VolatilityScaler(
-            rv_lookback=config.rv_lookback,
-            max_leverage=config.max_leverage,
-        )
-        self._prev_close_price: float | None = None
+        # Volatility scaling via plugin (auto daily close-to-close tracking)
+        self.plugins = PluginHost.from_config(config)
 
     def on_start(self) -> None:
+        self.plugins.on_start(self)
         self.subscribe_bars(self.bar_type)
 
     def _calc_qty(self, price: float, stop_distance: float) -> Quantity | None:
         if stop_distance <= 0:
             return None
-        weight = self._vol_scaler.weight if self.config.vol_scaling else 1.0
+        weight = self.plugins.size_multiplier()
         risk_amount = (
             float(self.config.capital)
             * self.config.leverage
@@ -122,14 +118,7 @@ class ORBStrategy(Strategy):
     def _start_new_day(self) -> None:
         if self._in_position:
             self._close_position()
-        closed_daily_close = self._close_daily_bar()
-        if closed_daily_close is not None:
-            if self._prev_close_price is not None:
-                ret = closed_daily_close / self._prev_close_price - 1.0
-                self._vol_scaler.add_return(ret)
-                if self.config.vol_scaling and self._current_day is not None:
-                    self._vol_scaler.rebalance(self._current_day.month)
-            self._prev_close_price = closed_daily_close
+        self._close_daily_bar()
         self._reset_day()
 
     def _accumulate_opening_range(self, bar: Bar) -> None:
@@ -224,6 +213,8 @@ class ORBStrategy(Strategy):
         self._position_qty = None
 
     def on_bar(self, bar: Bar) -> None:
+        self.plugins.on_bar(self, bar)
+
         bar_ts = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
         bar_date = bar_ts.date()
 

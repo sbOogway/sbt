@@ -33,6 +33,9 @@ class RunConfig:
     data_dir: str = "data"
     data_type: str = "bar"  # 'bar' or 'l2'
     l2_max_files: int | None = None
+    # Holdout split: fraction of the data span used for in-sample; the rest
+    # is out-of-sample (e.g. 0.7 -> 70% train / 30% validation).
+    train_val_split: float | None = None
 
     def with_overrides(self, params: dict) -> "RunConfig":
         """Return a copy with strategy_params updated from *params*."""
@@ -56,6 +59,7 @@ class RunConfig:
             data_dir=self.data_dir,
             data_type=self.data_type,
             l2_max_files=self.l2_max_files,
+            train_val_split=self.train_val_split,
         )
 
     def to_dict(self) -> dict:
@@ -79,6 +83,7 @@ class RunConfig:
             "data_dir": self.data_dir,
             "data_type": self.data_type,
             "l2_max_files": self.l2_max_files,
+            "train_val_split": self.train_val_split,
         }
 
     @classmethod
@@ -103,6 +108,7 @@ class RunConfig:
             data_dir=d.get("data_dir", "data"),
             data_type=d.get("data_type", "bar"),
             l2_max_files=d.get("l2_max_files"),
+            train_val_split=d.get("train_val_split"),
         )
 
     # ------------------------------------------------------------------
@@ -153,6 +159,9 @@ class RunConfig:
             data_dir=run.get("data_dir", "data"),
             data_type=data_type,
             l2_max_files=overrides.get("l2_max_files", run.get("l2_max_files")),
+            train_val_split=overrides.get(
+                "train_val_split", run.get("train_val_split")
+            ),
         )
 
     @classmethod
@@ -184,6 +193,15 @@ class RunConfig:
             help="Max L2 parquet files to load (for fast testing)",
         )
         parser.add_argument(
+            "--train-val-split",
+            type=float,
+            metavar="FRACTION",
+            help=(
+                "Holdout split: fraction of data span for in-sample training; "
+                "remainder runs as out-of-sample validation (e.g. 0.7)"
+            ),
+        )
+        parser.add_argument(
             "--strategy",
             default="bitcoin_intraday_momentum",
             help="Strategy section name in config (default: bitcoin_intraday_momentum)",
@@ -203,5 +221,6 @@ class RunConfig:
                 "feather": args.feather,
                 "data_type": args.data_type,
                 "l2_max_files": args.l2_max_files,
+                "train_val_split": args.train_val_split,
             },
         )

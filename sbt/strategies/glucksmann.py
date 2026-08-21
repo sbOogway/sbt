@@ -1,8 +1,5 @@
-from datetime import date
 from decimal import Decimal
 
-import pandas as pd
-from nautilus_trader.config import StrategyConfig
 from nautilus_trader.indicators import (
     BollingerBands,
     DonchianChannel,
@@ -14,8 +11,10 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
+from ..plugins import PluginHost, SBTStrategyConfig
 
-class GlucksmannConfig(StrategyConfig, frozen=True):
+
+class GlucksmannConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
     capital: Decimal
@@ -39,9 +38,11 @@ class GlucksmannConfig(StrategyConfig, frozen=True):
 
     enable_short: bool = True
 
-    vol_scaling: bool = True
+    plugins: tuple[str, ...] = ("vol_scaling",)
     rv_lookback: int = 22
-    max_leverage: float = 2.0
+    vol_max_scale: float = 2.0
+    # Preserve the original strategy behaviour: weight refreshes once a month.
+    vol_rebalance_freq: str = "monthly"
 
 
 class _RunningStats:
@@ -112,22 +113,21 @@ class GlucksmannStrategy(Strategy):
 
         self._extreme_entry: bool = False
 
-        self._current_weight: float = 1.0
-        self._daily_returns: list[float] = []
-        self._rv_history: list[float] = []
-        self._daily_close: float | None = None
-        self._last_bar_date: date | None = None
+        self.plugins = PluginHost.from_config(config)
 
         self._wait_for_short: bool = False
         self._need_long_entry: bool = False
         self._need_short_entry: bool = False
 
     def on_start(self) -> None:
+        self.plugins.on_start(self)
         self.subscribe_bars(self.bar_type)
 
     def _calc_qty(self, price: float) -> Quantity:
         notional = (
-            float(self.config.capital) * self.config.leverage * self._current_weight
+            float(self.config.capital)
+            * self.config.leverage
+            * self.plugins.size_multiplier()
         )
         raw_size = notional / price
         return Quantity(round(raw_size, 3), precision=3)
@@ -166,26 +166,6 @@ class GlucksmannStrategy(Strategy):
                 self.sma_100.initialized,
                 self.sma_200.initialized,
             )
-        )
-
-    def _track_daily_return(self, bar_date: date) -> None:
-        if self._last_bar_date is not None and bar_date != self._last_bar_date:
-            if self._prev_close is not None and self._daily_close is not None:
-                daily_ret = (self._prev_close / self._daily_close) - 1.0
-                self._daily_returns.append(daily_ret)
-            self._daily_close = self._prev_close
-        self._last_bar_date = bar_date
-
-    def _rebalance(self) -> None:
-        if len(self._daily_returns) < self.config.rv_lookback:
-            return
-        rv = sum(r * r for r in self._daily_returns[-self.config.rv_lookback :])
-        self._rv_history.append(rv)
-        c = sum(self._rv_history) / len(self._rv_history)
-        self._current_weight = (
-            min(self.config.max_leverage, c / rv)
-            if rv > 0
-            else self.config.max_leverage
         )
 
     def _enter_long(self, bar: Bar, close: float) -> None:
@@ -348,15 +328,7 @@ class GlucksmannStrategy(Strategy):
             self._close_position()
 
     def on_bar(self, bar: Bar) -> None:
-        if self.config.vol_scaling:
-            bar_date = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC").date()
-            if (
-                self._last_bar_date is not None
-                and bar_date.month != self._last_bar_date.month
-            ):
-                if len(self._daily_returns) >= self.config.rv_lookback:
-                    self._rebalance()
-            self._track_daily_return(bar_date)
+        self.plugins.on_bar(self, bar)
 
         self.bb.handle_bar(bar)
         self.sma_20.handle_bar(bar)

@@ -1,14 +1,15 @@
 """Layer 2 Order Book Imbalance & Microstructure Strategy."""
 
 from decimal import Decimal
-from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model.data import OrderBookDelta, OrderBookDeltas, TradeTick
 from nautilus_trader.model.enums import BookAction, BookType, OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
+from ..plugins import SBTStrategyConfig
 
-class L2OrderImbalanceConfig(StrategyConfig, frozen=True):
+
+class L2OrderImbalanceConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     """Configuration for L2 Order Book Imbalance Strategy."""
 
     instrument_id: InstrumentId

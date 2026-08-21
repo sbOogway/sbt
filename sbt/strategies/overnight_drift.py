@@ -1,17 +1,16 @@
 from decimal import Decimal
 
 import pandas as pd
-from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType, FundingRateUpdate
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
-from ..volatility import VolatilityScaler
+from ..plugins import PluginHost, SBTStrategyConfig
 
 
-class OvernightDriftConfig(StrategyConfig, frozen=True):
+class OvernightDriftConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
     capital: Decimal
@@ -23,7 +22,10 @@ class OvernightDriftConfig(StrategyConfig, frozen=True):
     entry_time: str = "20:00"
     exit_time: str = "14:00"
 
-    vol_scaling: bool = True
+    plugins: tuple[str, ...] = ("vol_scaling",)
+    # Returns are fed manually at entry_time so sampling follows the
+    # (optimizable) entry hour rather than fixed UTC midnight boundaries.
+    vol_track_daily: bool = False
     rv_lookback: int = 5
     vol_max_scale: float = 2.0
     weekdays_only: bool = True
@@ -42,16 +44,10 @@ class OvernightDrift(Strategy):
         self._open_funding_cost: Decimal = Decimal(0)
         self._trade_funding_costs: list[Decimal] = []
 
-        self._vol_scaler = (
-            VolatilityScaler(
-                rv_lookback=config.rv_lookback,
-                vol_max_scale=config.vol_max_scale,
-            )
-            if config.vol_scaling
-            else None
-        )
+        self.plugins = PluginHost.from_config(config)
 
     def on_start(self) -> None:
+        self.plugins.on_start(self)
         self.subscribe_bars(self.config.bar_type)
         if self.config.funding_enabled:
             self.subscribe_funding_rates(self.instrument_id)
@@ -73,13 +69,10 @@ class OvernightDrift(Strategy):
             ):
                 self._open_trade(OrderSide.BUY, close_price)
 
-            if (
-                self.config.vol_scaling
-                and self.prev_close is not None
-                and self._vol_scaler is not None
-            ):
+            scaler = self.plugins.get("vol_scaling")
+            if scaler is not None and self.prev_close is not None:
                 daily_ret = float(close_price / self.prev_close) - 1.0
-                self._vol_scaler.add_return(daily_ret)
+                scaler.add_return(daily_ret)
 
             self.prev_close = close_price
 
@@ -107,11 +100,7 @@ class OvernightDrift(Strategy):
         self._open_funding_cost = Decimal(0)
 
     def _open_trade(self, order_side: OrderSide, price: Decimal) -> None:
-        weight = (
-            Decimal(self._vol_scaler.weight)
-            if self._vol_scaler is not None
-            else Decimal(1.0)
-        )
+        weight = Decimal(str(self.plugins.size_multiplier()))
         account = self.cache.account_for_venue(self.instrument_id.venue)
         bal = account.balance_total()
         if bal is None:

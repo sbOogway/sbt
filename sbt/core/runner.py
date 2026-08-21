@@ -30,6 +30,7 @@ from nautilus_trader.model.objects import Money, Price, Quantity
 from ..stats import AnnualizedReturn, CalmarRatio, system_quality_number
 from ..stats import RunConfig as RunConfigStat
 from ..utils import get_strategy_class, make_perpetual, parse_interval
+from ..plugins import IN_SAMPLE, OUT_OF_SAMPLE, TrainValSplit
 from .config import RunConfig
 from .job import BacktestResult, JobStatus
 from .l2 import list_l2_instruments, load_l2_instrument, load_order_book_deltas, load_trade_ticks
@@ -43,6 +44,21 @@ _CURRENCY_MAP = {
 # ------------------------------------------------------------------
 # Data helpers (moved from __main__)
 # ------------------------------------------------------------------
+
+
+def _to_utc_ts(value: str | pd.Timestamp) -> pd.Timestamp:
+    """Normalize a date string or Timestamp to a tz-aware UTC Timestamp."""
+    if isinstance(value, pd.Timestamp):
+        return value.tz_convert("UTC") if value.tzinfo else value.tz_localize("UTC")
+    return pd.Timestamp(value, tz="UTC")
+
+
+def _fmt_metric(value) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, float):
+        return f"{value:+,.2f}"
+    return f"{value:,}"
 
 
 def load_bars(df: pd.DataFrame, bar_type: BarType) -> list[Bar]:
@@ -126,9 +142,144 @@ class BacktestRunner:
         self.engine: BacktestEngine | None = None
         self.venue: Venue | None = None
         self.strategy = None
+        # Per-window engines when a runner plugin split the job
+        # (e.g. {"in_sample": engine, "out_of_sample": engine}).
+        self.window_engines: dict[str, BacktestEngine] = {}
 
     def run(self, job_id: str = "standalone") -> BacktestResult:
-        """Execute the backtest and return a structured result."""
+        """Execute the backtest and return a structured result.
+
+        When ``config.train_val_split`` is set the data range is divided into
+        an in-sample and an out-of-sample window; both run through the normal
+        execution path and are merged with OOS metrics on top.
+        """
+        if self.config.train_val_split is not None:
+            return self._run_split(job_id)
+        return self._run_window(job_id, start=self.config.start, end=self.config.end)
+
+    # ------------------------------------------------------------------
+    # Train/val holdout split orchestration
+    # ------------------------------------------------------------------
+
+    def _run_split(self, job_id: str) -> BacktestResult:
+        cfg = self.config
+        try:
+            splitter = TrainValSplit(cfg.train_val_split)
+        except ValueError as e:
+            return BacktestResult(
+                job_id=job_id,
+                status=JobStatus.FAILED,
+                error=str(e),
+            )
+
+        full_df: pd.DataFrame | None = None
+        if cfg.data_type == "l2":
+            if not cfg.end:
+                return BacktestResult(
+                    job_id=job_id,
+                    status=JobStatus.FAILED,
+                    error="train_val_split requires an explicit 'end' date",
+                )
+            range_start = pd.Timestamp(cfg.start, tz="UTC")
+            range_end = pd.Timestamp(cfg.end, tz="UTC")
+        else:
+            feather_path = cfg.feather_path or find_feather(
+                cfg.exchange,
+                cfg.symbol,
+                cfg.interval,
+                search_dirs=[cfg.data_dir, "."],
+            )
+            if not feather_path:
+                return BacktestResult(
+                    job_id=job_id,
+                    status=JobStatus.FAILED,
+                    error=f"No feather data found for {cfg.symbol} ({cfg.interval})",
+                )
+            print(f"Loading data from {feather_path}...")
+            try:
+                full_df = pd.read_feather(feather_path)
+                full_df = full_df[
+                    ["timestamp", "open", "high", "low", "close", "volume"]
+                ]
+            except FileNotFoundError:
+                return BacktestResult(
+                    job_id=job_id,
+                    status=JobStatus.FAILED,
+                    error=f"Feather file '{feather_path}' not found.",
+                )
+
+            start_ts = _to_utc_ts(cfg.start)
+            full_df = full_df[full_df["timestamp"] >= start_ts].reset_index(drop=True)
+            if cfg.end:
+                end_ts = _to_utc_ts(cfg.end)
+                full_df = full_df[full_df["timestamp"] <= end_ts].reset_index(drop=True)
+
+            if len(full_df) < 2:
+                return BacktestResult(
+                    job_id=job_id,
+                    status=JobStatus.FAILED,
+                    error=(
+                        f"Not enough bars for train/val split "
+                        f"({len(full_df)} rows after date filtering)."
+                    ),
+                )
+            range_start = full_df["timestamp"].iloc[0]
+            range_end = full_df["timestamp"].iloc[-1]
+
+        split_ts = splitter.split_timestamp(range_start, range_end)
+        windows = {
+            IN_SAMPLE: (range_start, split_ts),
+            OUT_OF_SAMPLE: (split_ts, range_end),
+        }
+
+        results: dict[str, BacktestResult] = {}
+        for key, (w_start, w_end) in windows.items():
+            label = {"in_sample": "In-Sample", "out_of_sample": "Out-of-Sample"}[key]
+            print(f"\n--- {label} window: {w_start} -> {w_end} ---")
+            res = self._run_window(
+                f"{job_id}:{key}",
+                start=w_start,
+                end=w_end,
+                df=full_df,
+            )
+            results[key] = res
+            if res.status != JobStatus.DONE:
+                return res
+            self.window_engines[key] = self.engine
+
+        combined = splitter.combine(job_id, results, windows)
+        is_res, oos_res = results[IN_SAMPLE], results[OUT_OF_SAMPLE]
+        print("\n========== TRAIN/VAL SPLIT SUMMARY ==========")
+        print(
+            f"{'metric':<16} {'in-sample':>14} {'out-of-sample':>15}"
+        )
+        for name, is_v, oos_v in (
+            ("Sharpe", is_res.sharpe_ratio, oos_res.sharpe_ratio),
+            ("Trades", is_res.num_trades, oos_res.num_trades),
+            ("PnL", is_res.pnl, oos_res.pnl),
+            ("SQN", is_res.sqn, oos_res.sqn),
+        ):
+            print(
+                f"{name:<16} {_fmt_metric(is_v):>14} {_fmt_metric(oos_v):>15}"
+            )
+        return combined
+
+    # ------------------------------------------------------------------
+    # Single-window execution
+    # ------------------------------------------------------------------
+
+    def _run_window(
+        self,
+        job_id: str,
+        start: str | pd.Timestamp,
+        end: str | pd.Timestamp | None,
+        df: pd.DataFrame | None = None,
+    ) -> BacktestResult:
+        """Execute one backtest over the [start, end] window.
+
+        *df* may carry a preloaded OHLCV frame (split mode) to avoid a second
+        feather read; it is filtered to the window bounds here.
+        """
         t0 = time.monotonic()
         cfg = self.config
 
@@ -188,12 +339,14 @@ class BacktestRunner:
             )
             engine.add_instrument(instrument)
 
-            # Load L2 deltas and trades
+            # Load L2 deltas and trades (loaders expect plain date strings)
+            start_str = str(_to_utc_ts(start))
+            end_str = str(_to_utc_ts(end)) if end is not None else None
             deltas = load_order_book_deltas(
                 instrument,
                 catalog_dir=cfg.data_dir,
-                start=cfg.start,
-                end=cfg.end,
+                start=start_str,
+                end=end_str,
                 max_files=cfg.l2_max_files,
             )
             if deltas:
@@ -202,8 +355,8 @@ class BacktestRunner:
             trades = load_trade_ticks(
                 instrument,
                 catalog_dir=cfg.data_dir,
-                start=cfg.start,
-                end=cfg.end,
+                start=start_str,
+                end=end_str,
                 max_files=cfg.l2_max_files,
             )
             if trades:
@@ -215,7 +368,7 @@ class BacktestRunner:
                 "instrument_id": instrument.id,
                 "capital": cfg.capital,
                 "leverage": cfg.leverage,
-                "backtest_start_date": cfg.start,
+                "backtest_start_date": _to_utc_ts(start).strftime("%Y-%m-%d"),
                 **cfg.strategy_params,
             }
 
@@ -236,33 +389,55 @@ class BacktestRunner:
         # Bar (OHLCV) Execution Mode
         # --------------------------------------------------------------
         else:
-            feather_path = cfg.feather_path or find_feather(
-                cfg.exchange,
-                cfg.symbol,
-                cfg.interval,
-                search_dirs=[cfg.data_dir, "."],
-            )
-            if not feather_path:
+            if df is None:
+                feather_path = cfg.feather_path or find_feather(
+                    cfg.exchange,
+                    cfg.symbol,
+                    cfg.interval,
+                    search_dirs=[cfg.data_dir, "."],
+                )
+                if not feather_path:
+                    return BacktestResult(
+                        job_id=job_id,
+                        status=JobStatus.FAILED,
+                        error=f"No feather data found for {cfg.symbol} ({cfg.interval})",
+                    )
+
+                print(f"Loading data from {feather_path}...")
+                try:
+                    df = pd.read_feather(feather_path)
+                except FileNotFoundError:
+                    return BacktestResult(
+                        job_id=job_id,
+                        status=JobStatus.FAILED,
+                        error=f"Feather file '{feather_path}' not found.",
+                    )
+            else:
+                print("Using preloaded data frame for this window.")
+
+            try:
+                df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+            except KeyError as e:
                 return BacktestResult(
                     job_id=job_id,
                     status=JobStatus.FAILED,
-                    error=f"No feather data found for {cfg.symbol} ({cfg.interval})",
+                    error=f"Feather file missing expected columns: {e}",
                 )
 
-            print(f"Loading data from {feather_path}...")
-            try:
-                df = pd.read_feather(feather_path)
-                df = df[["timestamp", "open", "high", "low", "close", "volume"]]
-                start_ts = pd.Timestamp(cfg.start, tz="UTC")
-                df = df[df["timestamp"] >= start_ts].reset_index(drop=True)
-                if cfg.end:
-                    end_ts = pd.Timestamp(cfg.end, tz="UTC")
-                    df = df[df["timestamp"] <= end_ts].reset_index(drop=True)
-            except FileNotFoundError:
+            window_start = _to_utc_ts(start)
+            df = df[df["timestamp"] >= window_start].reset_index(drop=True)
+            window_end = _to_utc_ts(end) if end is not None else None
+            if window_end is not None:
+                df = df[df["timestamp"] <= window_end].reset_index(drop=True)
+
+            if len(df) < 2:
                 return BacktestResult(
                     job_id=job_id,
                     status=JobStatus.FAILED,
-                    error=f"Feather file '{feather_path}' not found.",
+                    error=(
+                        f"Not enough bars in [{window_start}, {end}] "
+                        f"({len(df)} rows)."
+                    ),
                 )
 
             ref_price = float(df["close"].iloc[0])
@@ -320,7 +495,7 @@ class BacktestRunner:
                 bar_type=bar_type,
                 capital=cfg.capital,
                 leverage=cfg.leverage,
-                backtest_start_date=cfg.start,
+                backtest_start_date=window_start.strftime("%Y-%m-%d"),
                 **cfg.strategy_params,
             )
 
@@ -337,10 +512,13 @@ class BacktestRunner:
             if funding_path:
                 print(f"Loading funding data from {funding_path}...")
                 df_funding = pd.read_feather(funding_path)
-                start_ts = pd.Timestamp(cfg.start, tz="UTC")
-                df_funding = df_funding[df_funding["timestamp"] >= start_ts].reset_index(
-                    drop=True
-                )
+                df_funding = df_funding[
+                    df_funding["timestamp"] >= window_start
+                ].reset_index(drop=True)
+                if window_end is not None:
+                    df_funding = df_funding[
+                        df_funding["timestamp"] <= window_end
+                    ].reset_index(drop=True)
                 funding_updates = load_funding_rates(df_funding, instrument.id)
                 engine.add_data(funding_updates)
                 print(f"Loaded {len(funding_updates)} funding rate updates.")
