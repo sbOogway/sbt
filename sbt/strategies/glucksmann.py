@@ -5,18 +5,19 @@ from nautilus_trader.indicators import (
     DonchianChannel,
     SimpleMovingAverage,
 )
-from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
-from nautilus_trader.trading.strategy import Strategy
 
-from ..plugins import PluginHost, SBTStrategyConfig
+from ..plugins import SBTStrategyConfig
+from .base import SBTStrategy
 
 
 class GlucksmannConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
+    # Retained for run provenance; sizing compounds off live account equity.
     capital: Decimal
     leverage: float = 1.0
 
@@ -74,11 +75,9 @@ class _RunningStats:
         return len(self._values) == self.period
 
 
-class GlucksmannStrategy(Strategy):
+class GlucksmannStrategy(SBTStrategy):
     def __init__(self, config: GlucksmannConfig) -> None:
         super().__init__(config)
-        self.instrument_id = config.instrument_id
-        self.bar_type = config.bar_type
 
         self.bb = BollingerBands(config.bb_period, config.bb_std)
         self.sma_20 = SimpleMovingAverage(config.sma_fast_period)
@@ -102,35 +101,27 @@ class GlucksmannStrategy(Strategy):
         self._prev_sma_100: float | None = None
         self._prev_sma_50: float | None = None
 
-        self._in_position: bool = False
-        self._pos_side: OrderSide | None = None
         self._entry_price: float | None = None
         self._entry_candle_low: float | None = None
         self._entry_candle_high: float | None = None
         self._stop_price: float | None = None
-        self._open_qty: Quantity | None = None
         self._just_closed: bool = False
 
         self._extreme_entry: bool = False
-
-        self.plugins = PluginHost.from_config(config)
 
         self._wait_for_short: bool = False
         self._need_long_entry: bool = False
         self._need_short_entry: bool = False
 
-    def on_start(self) -> None:
-        self.plugins.on_start(self)
-        self.subscribe_bars(self.bar_type)
+    @property
+    def _in_position(self) -> bool:
+        return self.position_side is not None
 
-    def _calc_qty(self, price: float) -> Quantity:
+    def _calc_qty(self, price: float) -> Quantity | None:
         notional = (
-            float(self.config.capital)
-            * self.config.leverage
-            * self.plugins.size_multiplier()
+            self.equity() * self.config.leverage * self.vol_multiplier()
         )
-        raw_size = notional / price
-        return Quantity(round(raw_size, 3), precision=3)
+        return self.sized_quantity(notional / price)
 
     def _vol_ok(self) -> bool:
         return (
@@ -168,17 +159,10 @@ class GlucksmannStrategy(Strategy):
             )
         )
 
-    def _enter_long(self, bar: Bar, close: float) -> None:
+    def _enter_long(self, bar, close: float) -> None:
         qty = self._calc_qty(close)
-        order = self.order_factory.market(
-            instrument_id=self.instrument_id,
-            order_side=OrderSide.BUY,
-            quantity=qty,
-        )
-        self.submit_order(order)
-        self._open_qty = qty
-        self._in_position = True
-        self._pos_side = OrderSide.BUY
+        if not self.enter_market(OrderSide.BUY, qty):
+            return
         self._entry_price = close
         self._entry_candle_low = bar.low.as_double()
         self._entry_candle_high = bar.high.as_double()
@@ -194,43 +178,25 @@ class GlucksmannStrategy(Strategy):
 
         self._wait_for_short = False
 
-    def _enter_short(self, bar: Bar, close: float) -> None:
+    def _enter_short(self, bar, close: float) -> None:
         qty = self._calc_qty(close)
-        order = self.order_factory.market(
-            instrument_id=self.instrument_id,
-            order_side=OrderSide.SELL,
-            quantity=qty,
-        )
-        self.submit_order(order)
-        self._open_qty = qty
-        self._in_position = True
-        self._pos_side = OrderSide.SELL
+        if not self.enter_market(OrderSide.SELL, qty):
+            return
         self._entry_price = close
         self._entry_candle_high = bar.high.as_double()
         self._stop_price = self.dc_20.upper
         self._wait_for_short = False
 
     def _close_position(self) -> None:
-        if not self._in_position or self._open_qty is None:
-            return
-        side = OrderSide.SELL if self._pos_side == OrderSide.BUY else OrderSide.BUY
-        order = self.order_factory.market(
-            instrument_id=self.instrument_id,
-            order_side=side,
-            quantity=self._open_qty,
-        )
-        self.submit_order(order)
-        self._just_closed = True
-        self._reset()
+        if self.exit_market():
+            self._just_closed = True
+            self._reset()
 
     def _reset(self) -> None:
-        self._in_position = False
-        self._pos_side = None
         self._entry_price = None
         self._entry_candle_low = None
         self._entry_candle_high = None
         self._stop_price = None
-        self._open_qty = None
         self._extreme_entry = False
         self._wait_for_short = False
         self._need_long_entry = False
@@ -275,7 +241,7 @@ class GlucksmannStrategy(Strategy):
             if sma100_crossdown_sma50 and self._bbw() < self._vli_top():
                 self._need_short_entry = True
 
-    def _update_long_stops(self, bar: Bar, close: float) -> None:
+    def _update_long_stops(self, bar, close: float) -> None:
         low = bar.low.as_double()
         profit = (close - self._entry_price) / self._entry_price
 
@@ -306,8 +272,7 @@ class GlucksmannStrategy(Strategy):
         if low <= self._stop_price:
             self._close_position()
 
-    def _update_short_stops(self, bar: Bar, close: float) -> None:
-        low = bar.low.as_double()
+    def _update_short_stops(self, bar, close: float) -> None:
         high = bar.high.as_double()
 
         profit = (self._entry_price - close) / self._entry_price
@@ -327,9 +292,7 @@ class GlucksmannStrategy(Strategy):
         if high >= self._stop_price:
             self._close_position()
 
-    def on_bar(self, bar: Bar) -> None:
-        self.plugins.on_bar(self, bar)
-
+    def on_trading_bar(self, bar) -> None:
         self.bb.handle_bar(bar)
         self.sma_20.handle_bar(bar)
         self.sma_50.handle_bar(bar)
@@ -352,7 +315,7 @@ class GlucksmannStrategy(Strategy):
             self._bbw_stats.update(bbw)
 
         if self._in_position:
-            if self._pos_side == OrderSide.BUY:
+            if self.position_side == OrderSide.BUY:
                 self._update_long_stops(bar, close)
             else:
                 self._update_short_stops(bar, close)
@@ -376,7 +339,7 @@ class GlucksmannStrategy(Strategy):
                 self._prev_close <= self._prev_bb_lower and close > self.bb.lower
             )
 
-            if self._in_position and self._pos_side == OrderSide.BUY:
+            if self._in_position and self.position_side == OrderSide.BUY:
                 if crossdown_bb_bot and self._vol_ok():
                     self._close_position()
 

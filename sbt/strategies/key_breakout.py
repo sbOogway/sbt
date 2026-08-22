@@ -1,17 +1,18 @@
 from decimal import Decimal
 
-from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
-from nautilus_trader.trading.strategy import Strategy
 
-from ..plugins import PluginHost, SBTStrategyConfig
+from ..plugins import SBTStrategyConfig
+from .base import SBTStrategy
 
 
 class KeyBreakoutConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
+    # Retained for run provenance; sizing compounds off live account equity.
     capital: Decimal
     leverage: float = 1.0
 
@@ -33,12 +34,9 @@ class KeyBreakoutConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     vol_max_scale: float = 2.0
 
 
-class KeyBreakout(Strategy):
+class KeyBreakout(SBTStrategy):
     def __init__(self, config: KeyBreakoutConfig) -> None:
         super().__init__(config)
-        self.instrument_id = config.instrument_id
-        self.bar_type = config.bar_type
-
         self._atr_value: float = 0.0
         self._true_ranges: list[float] = []
         self._prev_close: float | None = None
@@ -52,35 +50,25 @@ class KeyBreakout(Strategy):
         self._swing_highs: list[float] = []
         self._swing_lows: list[float] = []
 
-        self._in_position: bool = False
-        self._pos_side: OrderSide | None = None
         self._entry_price: float | None = None
         self._stop_price: float | None = None
         self._best_price: float | None = None
         self._bars_held: int = 0
-        self._open_qty: Quantity | None = None
 
-        self.plugins = PluginHost.from_config(config)
-
-    def on_start(self) -> None:
-        self.plugins.on_start(self)
-        self.subscribe_bars(self.bar_type)
+    @property
+    def _in_position(self) -> bool:
+        return self.position_side is not None
 
     def _calc_qty(self, stop_distance: float) -> Quantity | None:
         if stop_distance <= 0:
             return None
-        weight = self.plugins.size_multiplier()
         risk_amount = (
-            float(self.config.capital)
+            self.equity()
             * self.config.leverage
             * self.config.risk_per_trade
-            * weight
+            * self.vol_multiplier()
         )
-        size = risk_amount / stop_distance
-        qty = round(size, 3)
-        if qty <= 0:
-            return None
-        return Quantity(qty, precision=3)
+        return self.sized_quantity(risk_amount / stop_distance)
 
     def _update_atr(self, high: float, low: float, close: float) -> None:
         if self._prev_close is not None:
@@ -100,46 +88,26 @@ class KeyBreakout(Strategy):
     def _enter(self, side: OrderSide, price: float) -> None:
         stop_distance = self.config.atr_stop_multiple * self._atr_value
         qty = self._calc_qty(stop_distance)
-        if qty is None:
+        if not self.enter_market(side, qty):
             return
-        order = self.order_factory.market(
-            instrument_id=self.instrument_id,
-            order_side=side,
-            quantity=qty,
-        )
-        self.submit_order(order)
-        self._in_position = True
-        self._pos_side = side
         self._entry_price = price
         self._best_price = price
         self._bars_held = 0
-        self._open_qty = qty
         self._stop_price = (
             price - stop_distance if side == OrderSide.BUY else price + stop_distance
         )
 
     def _close_position(self) -> None:
-        if not self._in_position or self._open_qty is None:
-            return
-        side = OrderSide.SELL if self._pos_side == OrderSide.BUY else OrderSide.BUY
-        order = self.order_factory.market(
-            instrument_id=self.instrument_id,
-            order_side=side,
-            quantity=self._open_qty,
-        )
-        self.submit_order(order)
-        self._in_position = False
-        self._pos_side = None
-        self._entry_price = None
-        self._stop_price = None
-        self._best_price = None
-        self._bars_held = 0
-        self._open_qty = None
+        if self.exit_market():
+            self._entry_price = None
+            self._stop_price = None
+            self._best_price = None
+            self._bars_held = 0
 
     def _manage_position(self, high: float, low: float) -> None:
         self._bars_held += 1
         stop_distance = self.config.atr_stop_multiple * self._atr_value
-        if self._pos_side == OrderSide.BUY:
+        if self.position_side == OrderSide.BUY:
             self._best_price = max(self._best_price, high)
             self._stop_price = max(self._stop_price, self._best_price - stop_distance)
             if low <= self._stop_price:
@@ -196,9 +164,7 @@ class KeyBreakout(Strategy):
                 self._setup_high = high
                 self._setup_low = low
 
-    def on_bar(self, bar: Bar) -> None:
-        self.plugins.on_bar(self, bar)
-
+    def on_trading_bar(self, bar) -> None:
         high = bar.high.as_double()
         low = bar.low.as_double()
         close = bar.close.as_double()

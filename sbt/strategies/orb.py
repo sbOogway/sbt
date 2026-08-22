@@ -2,18 +2,19 @@ from datetime import date
 from decimal import Decimal
 
 import pandas as pd
-from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
-from nautilus_trader.trading.strategy import Strategy
 
-from ..plugins import PluginHost, SBTStrategyConfig
+from ..plugins import SBTStrategyConfig
+from .base import SBTStrategy
 
 
 class ORBConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
+    # Retained for run provenance; sizing compounds off live account equity.
     capital: Decimal
     leverage: float
 
@@ -29,11 +30,9 @@ class ORBConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     vol_max_scale: float = 3.0
 
 
-class ORBStrategy(Strategy):
+class ORBStrategy(SBTStrategy):
     def __init__(self, config: ORBConfig) -> None:
         super().__init__(config)
-        self.instrument_id = config.instrument_id
-        self.bar_type = config.bar_type
 
         # Daily OHLC for ATR
         self._daily_high: float | None = None
@@ -54,32 +53,24 @@ class ORBStrategy(Strategy):
         self._orb_ready: bool = False
         self._entry_triggered: bool = False
 
-        # Position state
-        self._in_position: bool = False
-        self._position_side: OrderSide | None = None
+        # Position state extras
         self._entry_price: float | None = None
         self._stop_price: float | None = None
-        self._position_qty: Quantity | None = None
 
-        # Volatility scaling via plugin (auto daily close-to-close tracking)
-        self.plugins = PluginHost.from_config(config)
+    @property
+    def _in_position(self) -> bool:
+        return self.position_side is not None
 
-    def on_start(self) -> None:
-        self.plugins.on_start(self)
-        self.subscribe_bars(self.bar_type)
-
-    def _calc_qty(self, price: float, stop_distance: float) -> Quantity | None:
+    def _calc_qty(self, stop_distance: float) -> Quantity | None:
         if stop_distance <= 0:
             return None
-        weight = self.plugins.size_multiplier()
         risk_amount = (
-            float(self.config.capital)
+            self.equity()
             * self.config.leverage
             * self.config.risk_per_trade
-            * weight
+            * self.vol_multiplier()
         )
-        size = risk_amount / stop_distance
-        return Quantity(round(size, 3), precision=3)
+        return self.sized_quantity(risk_amount / stop_distance)
 
     def _close_daily_bar(self) -> float | None:
         closed_daily_close = self._daily_close
@@ -121,7 +112,7 @@ class ORBStrategy(Strategy):
         self._close_daily_bar()
         self._reset_day()
 
-    def _accumulate_opening_range(self, bar: Bar) -> None:
+    def _accumulate_opening_range(self, bar) -> None:
         high = bar.high.as_double()
         low = bar.low.as_double()
 
@@ -142,7 +133,7 @@ class ORBStrategy(Strategy):
                     self._orb_direction = "short"
             self._orb_ready = True
 
-    def _check_entry(self, bar: Bar) -> None:
+    def _check_entry(self, bar) -> None:
         if self._entry_triggered or not self._orb_ready or self._orb_direction is None:
             return
 
@@ -151,78 +142,44 @@ class ORBStrategy(Strategy):
         stop_distance = self.config.atr_stop_multiple * self._atr_value
 
         if self._orb_direction == "long" and high >= self._orb_high:
-            qty = self._calc_qty(self._orb_high, stop_distance)
-            if qty is not None:
-                order = self.order_factory.market(
-                    instrument_id=self.instrument_id,
-                    order_side=OrderSide.BUY,
-                    quantity=qty,
-                )
-                self.submit_order(order)
-                self._in_position = True
-                self._position_side = OrderSide.BUY
+            qty = self._calc_qty(stop_distance)
+            if self.enter_market(OrderSide.BUY, qty):
                 self._entry_price = self._orb_high
-                self._position_qty = qty
                 self._stop_price = self._orb_high - stop_distance
                 self._entry_triggered = True
 
         if self._orb_direction == "short" and low <= self._orb_low:
-            qty = self._calc_qty(self._orb_low, stop_distance)
-            if qty is not None:
-                order = self.order_factory.market(
-                    instrument_id=self.instrument_id,
-                    order_side=OrderSide.SELL,
-                    quantity=qty,
-                )
-                self.submit_order(order)
-                self._in_position = True
-                self._position_side = OrderSide.SELL
+            qty = self._calc_qty(stop_distance)
+            if self.enter_market(OrderSide.SELL, qty):
                 self._entry_price = self._orb_low
-                self._position_qty = qty
                 self._stop_price = self._orb_low + stop_distance
                 self._entry_triggered = True
 
-    def _check_stop(self, bar: Bar) -> None:
+    def _check_stop(self, bar) -> None:
         if not self._in_position or self._stop_price is None:
             return
         low = bar.low.as_double()
         high = bar.high.as_double()
-        if self._position_side == OrderSide.BUY and low <= self._stop_price or self._position_side == OrderSide.SELL and high >= self._stop_price:
+        long_stop_hit = (
+            self.position_side == OrderSide.BUY and low <= self._stop_price
+        )
+        short_stop_hit = (
+            self.position_side == OrderSide.SELL and high >= self._stop_price
+        )
+        if long_stop_hit or short_stop_hit:
             self._close_position()
 
     def _close_position(self) -> None:
-        if (
-            not self._in_position
-            or self._position_side is None
-            or self._position_qty is None
-        ):
-            return
-        close_side = (
-            OrderSide.SELL if self._position_side == OrderSide.BUY else OrderSide.BUY
-        )
-        order = self.order_factory.market(
-            instrument_id=self.instrument_id,
-            order_side=close_side,
-            quantity=self._position_qty,
-        )
-        self.submit_order(order)
-        self._in_position = False
-        self._position_side = None
-        self._entry_price = None
-        self._stop_price = None
-        self._position_qty = None
+        if self.exit_market():
+            self._entry_price = None
+            self._stop_price = None
 
-    def on_bar(self, bar: Bar) -> None:
-        self.plugins.on_bar(self, bar)
-
+    def on_trading_bar(self, bar) -> None:
         bar_ts = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
         bar_date = bar_ts.date()
 
         if self._current_day is not None and bar_date != self._current_day:
             self._start_new_day()
-
-        if self._current_day is None:
-            self._current_day = bar_date
 
         self._current_day = bar_date
 
@@ -242,7 +199,7 @@ class ORBStrategy(Strategy):
             self._check_entry(bar)
             self._check_stop(bar)
 
-    def _update_daily_ohlc(self, bar: Bar) -> None:
+    def _update_daily_ohlc(self, bar) -> None:
         high = bar.high.as_double()
         low = bar.low.as_double()
         close = bar.close.as_double()
