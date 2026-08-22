@@ -92,6 +92,11 @@ def main():
     )
     sub_opt.add_argument("--db", default="sbt.db", help="SQLite database path")
     sub_opt.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not open the generated report in a browser",
+    )
+    sub_opt.add_argument(
         "--objective",
         choices=["sharpe", "sqn"],
         default="sharpe",
@@ -107,6 +112,11 @@ def main():
     sub_opt.add_argument("--interval", help="Override interval")
     sub_opt.add_argument("--leverage", help="Override leverage")
     sub_opt.add_argument("--start", help="Override start date")
+    sub_opt.add_argument(
+        "--local",
+        action="store_true",
+        help="Force in-process trials even if a scheduler is reachable",
+    )
     sub_opt.set_defaults(func=cmd_optimize)
 
     args = parser.parse_args()

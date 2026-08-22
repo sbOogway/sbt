@@ -1,5 +1,6 @@
 """ZMQ Client for communicating with the SBT Scheduler."""
 
+import json
 import logging
 
 import zmq
@@ -20,16 +21,23 @@ class SbtClient:
         self.ctx = zmq.Context()
 
     def _request(self, payload: dict) -> dict:
-        """Send request to scheduler and await JSON response."""
-        sock = self.ctx.socket(zmq.REQ)
+        """Send request to scheduler and await JSON response.
+
+        Uses DEALER with an explicit empty delimiter frame instead of REQ:
+        REQ's strict lockstep + delimiter handling does not survive the
+        scheduler's plain ``[identity, payload]`` replies (requests would
+        time out despite the scheduler answering).
+        """
+        sock = self.ctx.socket(zmq.DEALER)
         sock.setsockopt(zmq.RCVTIMEO, self.timeout_ms)
         sock.setsockopt(zmq.SNDTIMEO, self.timeout_ms)
+        sock.setsockopt(zmq.LINGER, 0)
         sock.connect(self.endpoint)
 
         try:
-            sock.send_json(payload)
-            resp = sock.recv_json()
-            return resp
+            sock.send_multipart([b"", json.dumps(payload).encode("utf-8")])
+            frames = sock.recv_multipart()
+            return json.loads(frames[-1].decode("utf-8"))
         except zmq.Again:
             raise TimeoutError(f"Request to scheduler at {self.endpoint} timed out.")
         finally:

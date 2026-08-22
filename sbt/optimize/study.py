@@ -3,17 +3,169 @@
 Two objective modes:
 - 'sharpe': 3-objective Pareto front (Sharpe, Trades, PnL) — the default.
 - 'sqn': single-objective maximization of Van Tharp's System Quality Number.
+
+Execution modes:
+- LocalExecutor: runs backtests inline in this process (original path).
+- SchedulerExecutor: routes each trial through the scheduler daemon via an
+  ask/tell loop, parallel across the worker pool. Selected automatically when
+  a scheduler answers a ping on --port; pass --local to force inline runs.
 """
 
 import datetime
+import time
 from pathlib import Path
 
 import optuna
 
+from ..client.client import SbtClient
 from ..core.config import RunConfig
+from ..core.job import JobStatus
 from ..core.runner import BacktestRunner
 from .param_parser import parse_param_spec, suggest_params
 from .report import generate_pareto_report, generate_sqn_report
+
+_RESULT_POLL_S = 1.0
+
+
+class LocalExecutor:
+    """Run every trial inline in the current process (sequential)."""
+
+    name = "local"
+
+    def __init__(self, base_config: RunConfig, objective: str, primary_label: str):
+        self.base_config = base_config
+        self.objective = objective
+        self.primary_label = primary_label
+
+    def run(self, study: optuna.Study, param_space: dict, n_trials: int) -> None:
+        def objective_fn(trial: optuna.Trial):
+            params = suggest_params(trial, param_space)
+            config = self.base_config.with_overrides(params)
+            try:
+                result = BacktestRunner(config).run(job_id=f"trial_{trial.number}")
+            except Exception as e:
+                # A crashed trial must not poison the study with (0,0,0);
+                # prune it so TPE resamples elsewhere.
+                raise optuna.TrialPruned(f"backtest failed: {e}") from e
+
+            primary = (
+                result.sqn if self.objective == "sqn" else result.sharpe_ratio
+            ) or 0.0
+            trades = float(result.num_trades or 0)
+            pnl = result.pnl or 0.0
+
+            print(
+                f"[Trial #{trial.number:03d}] {self.primary_label}: {primary:+.2f} | "
+                f"Trades: {int(trades):3d} | PnL: ${pnl:+,.2f} | Params: {params}",
+                flush=True,
+            )
+            return primary if self.objective == "sqn" else (primary, trades, pnl)
+
+        study.optimize(objective_fn, n_trials=n_trials)
+
+
+class SchedulerExecutor:
+    """Route trials through the scheduler daemon (parallel across workers)."""
+
+    name = "scheduler"
+
+    def __init__(
+        self,
+        client: SbtClient,
+        base_config: RunConfig,
+        objective: str,
+        primary_label: str,
+        port: int,
+    ):
+        self.client = client
+        self.base_config = base_config
+        self.objective = objective
+        self.primary_label = primary_label
+        self.port = port
+
+    def _max_inflight(self) -> int:
+        try:
+            status = self.client.get_status()
+            return max(1, int(status.get("workers_total", 1)))
+        except Exception:
+            return 1
+
+    def _result_values(self, result_dict: dict):
+        primary = (
+            result_dict.get("sqn" if self.objective == "sqn" else "sharpe_ratio")
+        ) or 0.0
+        trades = float(result_dict.get("num_trades") or 0)
+        pnl = float(result_dict.get("pnl") or 0.0)
+        return primary if self.objective == "sqn" else (primary, trades, pnl)
+
+    def run(self, study: optuna.Study, param_space: dict, n_trials: int) -> None:
+        max_inflight = self._max_inflight()
+        print(f"In-flight cap from scheduler pool: {max_inflight} worker(s)")
+
+        inflight: dict[str, tuple[int, dict]] = {}  # job_id -> (trial_number, params)
+        submitted = 0
+
+        while submitted < n_trials or inflight:
+            # Refill while the pool has capacity.
+            while len(inflight) < max_inflight and submitted < n_trials:
+                trial = study.ask()
+                params = suggest_params(trial, param_space)
+                config = self.base_config.with_overrides(params)
+                try:
+                    job_id = self.client.submit(
+                        config, study_name=study.study_name
+                    )
+                except Exception as e:
+                    print(f"[Trial #{trial.number:03d}] submit failed: {e}")
+                    study.tell(trial.number, state=optuna.trial.TrialState.FAIL)
+                    continue
+                inflight[job_id] = (trial.number, params)
+                print(
+                    f"[Trial #{trial.number:03d}] queued as job {job_id} | Params: {params}",
+                    flush=True,
+                )
+                submitted += 1
+
+            if not inflight:
+                break
+
+            time.sleep(_RESULT_POLL_S)
+
+            for job_id, (tno, params) in list(inflight.items()):
+                try:
+                    resp = self.client.get_result(job_id)
+                except Exception:
+                    continue  # transient; retry next poll
+                if resp.get("status") == "pending":
+                    continue
+                if resp.get("status") != "ok":
+                    print(
+                        f"[Trial #{tno:03d}] job {job_id} lost ({resp.get('status')}); failing trial"
+                    )
+                    study.tell(tno, state=optuna.trial.TrialState.FAIL)
+                    inflight.pop(job_id)
+                    continue
+
+                result = resp["result"]
+                if result.get("status") != JobStatus.DONE.value:
+                    print(
+                        f"[Trial #{tno:03d}] FAILED on scheduler: {result.get('error')}"
+                    )
+                    study.tell(tno, state=optuna.trial.TrialState.FAIL)
+                    inflight.pop(job_id)
+                    continue
+
+                values = self._result_values(result)
+                primary = values if self.objective == "sqn" else values[0]
+                trades = int(float(result.get("num_trades") or 0))
+                pnl = float(result.get("pnl") or 0.0)
+                print(
+                    f"[Trial #{tno:03d}] {self.primary_label}: {primary:+.2f} | "
+                    f"Trades: {trades:3d} | PnL: ${pnl:+,.2f} | Params: {params}",
+                    flush=True,
+                )
+                study.tell(tno, values)
+                inflight.pop(job_id)
 
 
 def run_optuna_study(
@@ -26,12 +178,16 @@ def run_optuna_study(
     output_report: str | None = None,
     objective: str = "sharpe",
     overrides: dict | None = None,
+    local: bool = False,
 ) -> optuna.Study:
     """Run an Optuna optimization study for *strategy_name*.
 
     objective='sharpe' maximizes the (Sharpe, Trades, PnL) Pareto front;
     objective='sqn' purely maximizes the System Quality Number computed
     from per-trade returns.
+
+    Execution is routed through the scheduler when one is reachable at
+    ``tcp://127.0.0.1:{port}``; pass ``local=True`` to force in-process runs.
     """
     if objective not in ("sharpe", "sqn"):
         raise ValueError(
@@ -76,6 +232,22 @@ def run_optuna_study(
         "Sharpe Ratio" if objective == "sharpe" else "System Quality Number"
     )
 
+    # --- execution routing -------------------------------------------------
+    endpoint = f"tcp://127.0.0.1:{port}"
+    client = SbtClient(endpoint=endpoint, timeout_ms=2000)
+    executor: LocalExecutor | SchedulerExecutor
+    if local:
+        executor = LocalExecutor(base_config, objective, primary_label)
+        print("Execution mode: local (--local)")
+    elif client.ping():
+        executor = SchedulerExecutor(
+            client, base_config, objective, primary_label, port
+        )
+        print(f"Execution mode: scheduler at {endpoint}")
+    else:
+        executor = LocalExecutor(base_config, objective, primary_label)
+        print(f"No scheduler reachable at {endpoint}; falling back to local runs")
+
     print(f"\n--- Starting Optuna Optimization for '{strategy_name}' ---")
     print(f"Objective mode: {objective} ({primary_label})")
     print(f"Total Trials: {n_trials}")
@@ -98,34 +270,27 @@ def run_optuna_study(
         load_if_exists=True,
     )
 
-    def evaluate(trial: optuna.Trial) -> tuple[float, float, float]:
-        trial_params = suggest_params(trial, param_space)
-        config = base_config.with_overrides(trial_params)
-
-        runner = BacktestRunner(config)
-        result = runner.run(job_id=f"trial_{trial.number}")
-
-        primary = (
-            result.sqn if objective == "sqn" else result.sharpe_ratio
-        ) or 0.0
-        trades = float(result.num_trades or 0)
-        pnl = result.pnl or 0.0
-
-        print(
-            f"[Trial #{trial.number:03d}] {primary_label}: {primary:+.2f} | Trades: {int(trades):3d} | PnL: ${pnl:+,.2f} | Params: {trial_params}"
-        )
-        return (primary, trades, pnl)
-
-    def objective_fn(trial: optuna.Trial):
-        values = evaluate(trial)
-        return values[0] if objective == "sqn" else values
-
-    study.optimize(objective_fn, n_trials=n_trials)
+    try:
+        executor.run(study, param_space, n_trials)
+    finally:
+        if isinstance(executor, SchedulerExecutor):
+            client.close()
 
     print("\n========== OPTIMIZATION COMPLETE ==========")
-    print(f"Completed {len(study.trials)} trials.")
+    failed = sum(1 for t in study.trials if t.state == optuna.trial.TrialState.FAIL)
+    pruned = sum(1 for t in study.trials if t.state == optuna.trial.TrialState.PRUNED)
+    print(
+        f"Completed {len(study.trials)} trials "
+        f"(failed={failed}, pruned={pruned})."
+    )
+    completed = [
+        t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE
+    ]
+    if not completed:
+        print("No successful trials; skipping report generation.")
+        return study
     if objective == "sqn":
-        best = study.best_trial
+        best = max(completed, key=lambda t: t.value)
         print(
             f"Best trial #{best.number}: SQN {best.value:+.4f} | Params: {best.params}"
         )
@@ -133,13 +298,33 @@ def run_optuna_study(
             study=study,
             strategy_name=strategy_name,
             output_path=output_report or "reports/sqn_report.html",
+            open_browser=base_config.open_report,
         )
     else:
-        print(f"Found {len(study.best_trials)} Pareto-optimal solutions.")
+        pareto_trials = _pareto_front(completed)
+        print(f"Found {len(pareto_trials)} Pareto-optimal solutions.")
         report_path = generate_pareto_report(
             study=study,
             strategy_name=strategy_name,
             output_path=output_report or "reports/pareto_report.html",
+            open_browser=base_config.open_report,
         )
     print(f"Report generated: {report_path}")
     return study
+
+
+def _pareto_front(trials: list[optuna.trial.FrozenTrial]) -> list:
+    """Maximize all three objectives; non-dominated filter."""
+    pts = [t.values for t in trials]
+
+    def dominates(i: int, j: int) -> bool:
+        a, b = pts[i], pts[j]
+        return all(x >= y for x, y in zip(a, b)) and any(
+            x > y for x, y in zip(a, b)
+        )
+
+    front = []
+    for i in range(len(trials)):
+        if not any(dominates(j, i) for j in range(len(trials)) if j != i):
+            front.append(trials[i])
+    return front

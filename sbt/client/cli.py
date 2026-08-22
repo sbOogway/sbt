@@ -167,7 +167,13 @@ def cmd_results(args: argparse.Namespace) -> None:
         print(f"Status:       {res.get('status')}")
         print(f"Sharpe Ratio: {res.get('sharpe_ratio')}")
         print(f"Total Trades: {res.get('num_trades')}")
-        print(f"Net PnL:      ${res.get('pnl', 0):+,.2f}")
+        pnl = res.get("pnl")
+        print(f"Net PnL:      ${pnl:+,.2f}" if pnl is not None else "Net PnL:      N/A")
+        if res.get("funding_pnl"):
+            print(
+                f"Funding PnL:  ${res['funding_pnl']:+,.2f} "
+                "(side-channel; positive = paid)"
+            )
         print(f"Duration:     {res.get('duration_seconds', 0):.2f}s")
         if res.get("error"):
             print(f"Error:        {res.get('error')}")
@@ -245,5 +251,7 @@ def cmd_optimize(args: argparse.Namespace) -> None:
             "interval": args.interval,
             "leverage": args.leverage,
             "start": args.start,
+            "open_report": not getattr(args, "no_open", False),
         },
+        local=getattr(args, "local", False),
     )
