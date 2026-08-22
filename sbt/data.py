@@ -1,96 +1,134 @@
+"""Data downloader: ccxt -> feather.
+
+Unified pagination with retries and adaptive page sizes for both OHLCV and
+funding rates, plus incremental resume: re-running with an existing output
+file extends it from its newest timestamp instead of refetching everything.
+"""
+
 import argparse
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import ccxt
-
-# from nautilus_trader.core.uuid import UUID4
 import pandas as pd
 from tqdm import tqdm
 
+_DEFAULT_PAGE_LIMITS = {"ohlcv": 1000, "funding": 500}
 
-def fetch_funding_rates(
-    exchange_id: str, symbol: str, start_ms: int, end_ms: int
-) -> list[dict]:
+
+def _make_exchange(exchange_id: str):
     exchange_class = getattr(ccxt, exchange_id)
-    exchange = exchange_class({"enableRateLimit": True})
+    return exchange_class({"enableRateLimit": True})
 
-    all_rates: list[dict] = []
+
+def _fetch_page_with_retry(fetch, *, retries=3, what="page"):
+    last_err = None
+    for attempt in range(retries):
+        try:
+            return fetch()
+        except ccxt.NetworkError as e:
+            last_err = e
+            if attempt < retries - 1:
+                wait = 2**attempt
+                tqdm.write(f"Network error, retrying in {wait}s... ({e})")
+                time.sleep(wait)
+    raise last_err
+
+
+def _paginate(fetch_page, start_ms, end_ms, *, label, initial_limit):
+    """Yield raw pages walking [start_ms, end_ms); adapts page size down
+    when the exchange rejects the limit."""
+    limit = initial_limit
     since = start_ms
-    retries = 3
-
-    pbar = tqdm(desc=f"Fetching {symbol} funding rates from {exchange_id}")
+    pbar = tqdm(desc=label)
     while since < end_ms:
-        for attempt in range(retries):
-            try:
-                rates = exchange.fetch_funding_rate_history(
-                    symbol, since=since, limit=500
-                )
-                break
-            except ccxt.NetworkError as e:
-                if attempt < retries - 1:
-                    wait = 2**attempt
-                    tqdm.write(f"Network error, retrying in {wait}s... ({e})")
-                    time.sleep(wait)
-                else:
-                    raise
-        if not rates:
+        try:
+            rows = _fetch_page_with_retry(lambda: fetch_page(since, limit))
+        except ccxt.ExchangeError as e:
+            # Some exchanges cap results per call; shrink until accepted.
+            if limit > 50 and ("limit" in str(e).lower() or "size" in str(e).lower()):
+                limit = max(50, limit // 2)
+                tqdm.write(f"{type(e).__name__}: lowering page size to {limit}")
+                continue
+            raise
+        if not rows:
             break
-        parsed = [
-            {
-                "timestamp": pd.Timestamp(r["timestamp"], unit="ms", tz="UTC"),
-                "funding_rate": float(r["fundingRate"]),
-            }
-            for r in rates
-        ]
-        all_rates.extend(parsed)
-        since = rates[-1]["timestamp"] + 1
-        pbar.update(len(parsed))
+        yield rows
+        pbar.update(len(rows))
+        last_ms = rows[-1][0] if isinstance(rows[0], list) else rows[-1]["timestamp"]
+        since = last_ms + 1
     pbar.close()
-    return all_rates
 
 
 def fetch_ohlcv(
-    exchange_id: str, symbol: str, interval: str, start_ms: int, end_ms: int
-) -> list[dict]:
-    exchange_class = getattr(ccxt, exchange_id)
-    exchange = exchange_class({"enableRateLimit": True})
+    exchange_id: str,
+    symbol: str,
+    interval: str,
+    start_ms: int,
+    end_ms: int,
+    page_limit: int | None = None,
+):
+    exchange = _make_exchange(exchange_id)
+    limit = page_limit or _DEFAULT_PAGE_LIMITS["ohlcv"]
 
-    all_bars: list[dict] = []
-    since = start_ms
-    retries = 3
+    def page(since, limit):
+        return exchange.fetch_ohlcv(symbol, interval, since=since, limit=limit)
 
-    pbar = tqdm(desc=f"Fetching {symbol} {interval} from {exchange_id}")
-    while since < end_ms:
-        for attempt in range(retries):
-            try:
-                ohlcv = exchange.fetch_ohlcv(symbol, interval, since=since, limit=1000)
-                break
-            except ccxt.NetworkError as e:
-                if attempt < retries - 1:
-                    wait = 2**attempt
-                    tqdm.write(f"Network error, retrying in {wait}s... ({e})")
-                    time.sleep(wait)
-                else:
-                    raise
-        if not ohlcv:
-            break
-        parsed = [
-            {
-                "timestamp": pd.Timestamp(k[0], unit="ms", tz="UTC"),
-                "open": float(k[1]),
-                "high": float(k[2]),
-                "low": float(k[3]),
-                "close": float(k[4]),
-                "volume": float(k[5]),
-            }
-            for k in ohlcv
-        ]
-        all_bars.extend(parsed)
-        since = ohlcv[-1][0] + 1
-        pbar.update(len(parsed))
-    pbar.close()
-    return all_bars
+    def parse(k):
+        return {
+            "timestamp": pd.Timestamp(k[0], unit="ms", tz="UTC"),
+            "open": float(k[1]),
+            "high": float(k[2]),
+            "low": float(k[3]),
+            "close": float(k[4]),
+            "volume": float(k[5]),
+        }
+
+    out = []
+    for raw in _paginate(page, start_ms, end_ms, label=f"Fetching {symbol} {interval} from {exchange_id}", initial_limit=limit):
+        out.extend(parse(k) for k in raw)
+    return out
+
+
+def fetch_funding_rates(
+    exchange_id: str,
+    symbol: str,
+    start_ms: int,
+    end_ms: int,
+    page_limit: int | None = None,
+):
+    exchange = _make_exchange(exchange_id)
+    limit = page_limit or _DEFAULT_PAGE_LIMITS["funding"]
+
+    def page(since, limit):
+        return exchange.fetch_funding_rate_history(symbol, since=since, limit=limit)
+
+    def parse(r):
+        return {
+            "timestamp": pd.Timestamp(r["timestamp"], unit="ms", tz="UTC"),
+            "funding_rate": float(r["fundingRate"]),
+        }
+
+    out = []
+    for raw in _paginate(page, start_ms, end_ms, label=f"Fetching {symbol} funding rates from {exchange_id}", initial_limit=limit):
+        out.extend(parse(r) for r in raw)
+    return out
+
+
+def _resume_start_ms(path: Path, data_type: str) -> tuple[int, pd.DataFrame | None]:
+    """Return (resume_since_ms, previous_frame) when *path* can be extended."""
+    if not path.exists():
+        return None, None
+    try:
+        prev = pd.read_feather(path)
+        if prev.empty or "timestamp" not in prev.columns:
+            return None, None
+        max_ts = pd.to_datetime(prev["timestamp"], utc=True).max()
+        return int(max_ts.value // 1_000_000) + 1, prev
+    except Exception as e:
+        tqdm.write(f"Could not read {path} for resume ({e}); refetching from scratch")
+        return None, None
 
 
 def main() -> None:
@@ -109,6 +147,13 @@ def main() -> None:
     )
     parser.add_argument("--end", default=None, help="End date (default: today)")
     parser.add_argument("--output", default=None, help="Output feather path")
+    parser.add_argument("--page-limit", type=int, default=None,
+                        help="Rows per request (default: 1000 ohlcv / 500 funding)")
+    parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Refetch from --start even if the output file already exists",
+    )
     parser.add_argument(
         "--type",
         default="ohlcv",
@@ -127,25 +172,42 @@ def main() -> None:
     start_ms = int(start_dt.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 
+    safe_symbol = args.symbol.replace("/", "")
+    data_tag = args.type if args.type != "ohlcv" else args.interval
+    output = Path(
+        args.output
+        or f"data/{args.exchange}_{safe_symbol}_{data_tag}_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.feather"
+    )
+
+    prev: pd.DataFrame | None = None
+    if not args.no_resume:
+        resume_ms, prev = _resume_start_ms(output, args.type)
+        if resume_ms is not None:
+            print(f"Resuming {output} from {pd.Timestamp(resume_ms, unit='ms', tz='UTC')}")
+            start_ms = max(start_ms, resume_ms)
+
     if args.type == "funding":
-        rows = fetch_funding_rates(args.exchange, args.symbol, start_ms, end_ms)
+        rows = fetch_funding_rates(
+            args.exchange, args.symbol, start_ms, end_ms, page_limit=args.page_limit
+        )
     else:
-        rows = fetch_ohlcv(args.exchange, args.symbol, args.interval, start_ms, end_ms)
-    if not rows:
+        rows = fetch_ohlcv(
+            args.exchange, args.symbol, args.interval, start_ms, end_ms,
+            page_limit=args.page_limit,
+        )
+    if not rows and prev is None:
         print("No data fetched.")
         return
 
     df = pd.DataFrame(rows)
+    if prev is not None and len(df):
+        df = pd.concat([prev, df], ignore_index=True)
+    elif prev is not None:
+        df = prev
     df.drop_duplicates(subset=["timestamp"], inplace=True)
     df.sort_values("timestamp", inplace=True)
     df.reset_index(drop=True, inplace=True)
 
-    safe_symbol = args.symbol.replace("/", "")
-    data_tag = args.type if args.type != "ohlcv" else args.interval
-    output = (
-        args.output
-        or f"data/{args.exchange}_{safe_symbol}_{data_tag}_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.feather"
-    )
     df.to_feather(output)
     print(f"Saved {len(df)} rows to {output}")
     print(f"Date range: {df['timestamp'].min()} -> {df['timestamp'].max()}")

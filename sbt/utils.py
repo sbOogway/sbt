@@ -1,4 +1,5 @@
 import importlib
+from datetime import timedelta
 from decimal import Decimal
 
 from nautilus_trader.model.currencies import BTC, USDT
@@ -116,3 +117,28 @@ def parse_interval(interval: str) -> str:
     if result is None:
         raise ValueError(f"Unknown interval: {interval}")
     return result
+
+
+_INTERVAL_DELTAS = {
+    "1m": timedelta(minutes=1),
+    "3m": timedelta(minutes=3),
+    "5m": timedelta(minutes=5),
+    "15m": timedelta(minutes=15),
+    "30m": timedelta(minutes=30),
+    "1h": timedelta(hours=1),
+    "2h": timedelta(hours=2),
+    "4h": timedelta(hours=4),
+    "6h": timedelta(hours=6),
+    "8h": timedelta(hours=8),
+    "12h": timedelta(hours=12),
+    "1d": timedelta(days=1),
+    "1w": timedelta(weeks=1),
+}
+
+
+def interval_delta(interval: str) -> timedelta:
+    """Wall-clock duration of a single bar for the given interval key."""
+    delta = _INTERVAL_DELTAS.get(interval)
+    if delta is None:
+        raise ValueError(f"Unknown interval: {interval}")
+    return delta

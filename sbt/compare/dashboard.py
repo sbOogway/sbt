@@ -54,6 +54,25 @@ def generate_comparison_dashboard(
     )
     ordered_keys = [k for k in priority_keys if k in all_keys] + other_keys
 
+    # Surface funding side-channel PnL as a comparable row when nonzero
+    funding_key = "Funding PnL (paid)"
+    if any((r.get("funding_pnl") or 0.0) != 0.0 for r in results):
+        results = [
+            {
+                **r,
+                "stats": {
+                    **r.get("stats", {}),
+                    funding_key: f"${r.get('funding_pnl') or 0.0:+,.2f}",
+                },
+            }
+            for r in results
+        ]
+
+    # Collect all unique metric keys
+    all_keys = set()
+    for r in results:
+        all_keys.update(r.get("stats", {}).keys())
+
     # Build comparison table rows
     table_rows_html = ""
     for k in ordered_keys:

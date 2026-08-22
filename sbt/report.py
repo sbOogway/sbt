@@ -21,8 +21,41 @@ def _positions_json(positions: pd.DataFrame) -> str:
     return "[" + ",".join(rows) + "]"
 
 
-def _chart_block(positions_json: str, pair: str) -> str:
-    tv_symbol = f"BINANCE:{pair.replace('/', '')}"
+_TV_EXCHANGE_PREFIX = {
+    "binance": "BINANCE",
+    "binanceus": "BINANCEUS",
+    "bybit": "BYBIT",
+    "okx": "OKX",
+    "kucoin": "KUCOIN",
+    "bitget": "BITGET",
+}
+
+_TV_INTERVALS = {
+    "1m": "1",
+    "3m": "3",
+    "5m": "5",
+    "15m": "15",
+    "30m": "30",
+    "1h": "60",
+    "2h": "120",
+    "4h": "240",
+    "6h": "360",
+    "8h": "480",
+    "12h": "720",
+    "1d": "D",
+    "1w": "W",
+}
+
+
+def _chart_block(positions_json: str, pair: str, exchange: str = "", interval: str = "5m") -> str:
+    prefix = _TV_EXCHANGE_PREFIX.get((exchange or "").lower())
+    if prefix is None:
+        return (
+            "<p>TradingView chart unavailable: no symbol mapping for exchange "
+            f"'{exchange or 'unknown'}'.</p>"
+        )
+    tv_symbol = f"{prefix}:{pair.replace('/', '')}"
+    tv_interval = _TV_INTERVALS.get(interval, "60")
     return f"""
 <style>
 #tv-wrap {{ width:100%;height:90vh;margin:0;padding:0 }}
@@ -37,7 +70,7 @@ def _chart_block(positions_json: str, pair: str) -> str:
   new TradingView.widget({{
     container_id: "tv-chart",
     symbol: symbolName,
-    interval: "5",
+    interval: "{tv_interval}",
     timezone: "UTC",
     theme: "dark",
     style: "1",
@@ -365,6 +398,9 @@ def print_report(
     venue,
     title: str,
     pair: str = "",
+    exchange: str = "",
+    interval: str = "5m",
+    open_browser: bool = True,
 ) -> None:
     print("\n========== BACKTEST COMPLETE ==========")
 
@@ -408,6 +444,8 @@ def print_report(
     chart = _chart_block(
         positions_json=_positions_json(positions_report),
         pair=pair,
+        exchange=exchange,
+        interval=interval,
     )
 
     reports_html = _build_reports_html(
@@ -428,6 +466,7 @@ def print_report(
     print(f"Tearsheet saved to {tearsheet_path}")
 
     html_path = Path(tearsheet_path).resolve()
-    webbrowser.open(f"file://{html_path}")
+    if open_browser:
+        webbrowser.open(f"file://{html_path}")
 
     print("\n========== DONE ==========")

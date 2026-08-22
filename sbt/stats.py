@@ -51,7 +51,7 @@ class AnnualizedReturn(PortfolioStatistic):
         return ann_return
 
 
-class RunConfig(PortfolioStatistic):
+class RunConfigStatistic(PortfolioStatistic):
     def __init__(self, **kwargs: str) -> None:
         self._kwargs = kwargs
 

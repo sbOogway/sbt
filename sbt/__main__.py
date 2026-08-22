@@ -21,7 +21,7 @@ if __name__ == "__main__":
     if result.funding_pnl != 0:
         print("\n--- Funding Summary ---")
         print(f"  Total funding PnL: {result.funding_pnl:+.2f} {cfg.settle_currency}")
-        print("  (Negative = strategy paid, Positive = strategy received)")
+        print("  (Positive = strategy paid, Negative = strategy received)")
 
     # Report generation (uses engine/venue retained by the runner).
     # With a train/val split, one tearsheet per window is generated.
@@ -42,6 +42,17 @@ if __name__ == "__main__":
                     runner.venue,
                     title=window_titles.get(key, f"{base_title} [{key}]"),
                     pair=cfg.symbol,
+                    exchange=cfg.exchange,
+                    interval=cfg.interval,
+                    open_browser=cfg.open_report,
                 )
     else:
-        print_report(runner.engine, runner.venue, title=base_title, pair=cfg.symbol)
+        print_report(
+            runner.engine,
+            runner.venue,
+            title=base_title,
+            pair=cfg.symbol,
+            exchange=cfg.exchange,
+            interval=cfg.interval,
+            open_browser=cfg.open_report,
+        )

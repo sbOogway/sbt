@@ -14,3 +14,5 @@ reports/
 .worktrees/
 *.db
 *.db-journal
+# Kilo Code worktrees
+.kilo/
