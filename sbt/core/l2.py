@@ -6,7 +6,6 @@ from pathlib import Path
 import re
 import numpy as np
 import pandas as pd
-import pyarrow as pa
 import pyarrow.parquet as pq
 
 from nautilus_trader.model.data import BookOrder, OrderBookDelta, TradeTick
@@ -132,53 +131,53 @@ def load_order_book_deltas(
         return []
 
     logger.info("Loading %d order book delta files for %s...", len(files), inst_str)
-    tables = [pq.read_table(f) for f in files]
-    combined_table = pa.concat_tables(tables)
 
     inst_id = instrument.id
     p_prec = instrument.price_precision
     s_prec = instrument.size_precision
 
-    actions = combined_table["action"].to_numpy()
-    sides = combined_table["side"].to_numpy()
-    raw_p = np.frombuffer(b"".join(combined_table["price"].to_pylist()), dtype="<i8")
-    raw_s = np.frombuffer(b"".join(combined_table["size"].to_pylist()), dtype="<i8")
-    order_ids = combined_table["order_id"].to_numpy()
-    flags = combined_table["flags"].to_numpy()
-    seqs = combined_table["sequence"].to_numpy()
-    ts_events = combined_table["ts_event"].to_numpy()
-    ts_inits = combined_table["ts_init"].to_numpy()
-
     # Apply time filter if needed
     start_nanos = pd.Timestamp(start, tz="UTC").value if start else None
     end_nanos = pd.Timestamp(end, tz="UTC").value if end else None
 
-    prices = raw_p / 1e9
-    sizes = raw_s / 1e9
-
     deltas: list[OrderBookDelta] = []
-    n_rows = len(combined_table)
+    for path in files:
+        table = pq.read_table(path)
+        actions = table["action"].to_numpy()
+        sides = table["side"].to_numpy()
+        raw_p = np.frombuffer(b"".join(table["price"].to_pylist()), dtype="<i8")
+        raw_s = np.frombuffer(b"".join(table["size"].to_pylist()), dtype="<i8")
+        order_ids = table["order_id"].to_numpy()
+        flags = table["flags"].to_numpy()
+        seqs = table["sequence"].to_numpy()
+        ts_events = table["ts_event"].to_numpy()
+        ts_inits = table["ts_init"].to_numpy()
 
-    for i in range(n_rows):
-        ts = ts_events[i]
-        if start_nanos and ts < start_nanos:
-            continue
-        if end_nanos and ts > end_nanos:
-            continue
+        prices = raw_p / 1e9
+        sizes = raw_s / 1e9
 
-        p = Price(prices[i], precision=p_prec)
-        s = Quantity(sizes[i], precision=s_prec)
-        order = BookOrder(_SIDE_MAP[sides[i]], p, s, int(order_ids[i]))
-        delta = OrderBookDelta(
-            inst_id,
-            _ACTION_MAP[actions[i]],
-            order,
-            int(flags[i]),
-            int(seqs[i]),
-            int(ts),
-            int(ts_inits[i]),
-        )
-        deltas.append(delta)
+        for i in range(len(table)):
+            ts = ts_events[i]
+            if start_nanos and ts < start_nanos:
+                continue
+            if end_nanos and ts > end_nanos:
+                continue
+
+            p = Price(prices[i], precision=p_prec)
+            s = Quantity(sizes[i], precision=s_prec)
+            order = BookOrder(_SIDE_MAP[sides[i]], p, s, int(order_ids[i]))
+            deltas.append(OrderBookDelta(
+                inst_id,
+                _ACTION_MAP[actions[i]],
+                order,
+                int(flags[i]),
+                int(seqs[i]),
+                int(ts),
+                int(ts_inits[i]),
+            ))
+
+        del table, actions, sides, raw_p, raw_s, order_ids, flags, seqs
+        del ts_events, ts_inits, prices, sizes
 
     logger.info("Loaded %d OrderBookDelta objects for %s", len(deltas), inst_str)
     return deltas
@@ -207,49 +206,49 @@ def load_trade_ticks(
         return []
 
     logger.info("Loading %d trade tick files for %s...", len(files), inst_str)
-    tables = [pq.read_table(f) for f in files]
-    combined_table = pa.concat_tables(tables)
 
     inst_id = instrument.id
     p_prec = instrument.price_precision
     s_prec = instrument.size_precision
 
-    raw_p = np.frombuffer(b"".join(combined_table["price"].to_pylist()), dtype="<i8")
-    raw_s = np.frombuffer(b"".join(combined_table["size"].to_pylist()), dtype="<i8")
-    aggressor_sides = combined_table["aggressor_side"].to_numpy()
-    trade_ids = combined_table["trade_id"].to_pylist()
-    ts_events = combined_table["ts_event"].to_numpy()
-    ts_inits = combined_table["ts_init"].to_numpy()
-
     start_nanos = pd.Timestamp(start, tz="UTC").value if start else None
     end_nanos = pd.Timestamp(end, tz="UTC").value if end else None
 
-    prices = raw_p / 1e9
-    sizes = raw_s / 1e9
-
     trades: list[TradeTick] = []
-    n_rows = len(combined_table)
+    for path in files:
+        table = pq.read_table(path)
+        raw_p = np.frombuffer(b"".join(table["price"].to_pylist()), dtype="<i8")
+        raw_s = np.frombuffer(b"".join(table["size"].to_pylist()), dtype="<i8")
+        aggressor_sides = table["aggressor_side"].to_numpy()
+        trade_ids = table["trade_id"].to_pylist()
+        ts_events = table["ts_event"].to_numpy()
+        ts_inits = table["ts_init"].to_numpy()
 
-    for i in range(n_rows):
-        ts = ts_events[i]
-        if start_nanos and ts < start_nanos:
-            continue
-        if end_nanos and ts > end_nanos:
-            continue
+        prices = raw_p / 1e9
+        sizes = raw_s / 1e9
 
-        p = Price(prices[i], precision=p_prec)
-        s = Quantity(sizes[i], precision=s_prec)
-        agg_side = _AGGRESSOR_SIDE_MAP.get(aggressor_sides[i], AggressorSide.NO_AGGRESSOR)
-        trade = TradeTick(
-            instrument_id=inst_id,
-            price=p,
-            size=s,
-            aggressor_side=agg_side,
-            trade_id=TradeId(str(trade_ids[i])),
-            ts_event=int(ts),
-            ts_init=int(ts_inits[i]),
-        )
-        trades.append(trade)
+        for i in range(len(table)):
+            ts = ts_events[i]
+            if start_nanos and ts < start_nanos:
+                continue
+            if end_nanos and ts > end_nanos:
+                continue
+
+            p = Price(prices[i], precision=p_prec)
+            s = Quantity(sizes[i], precision=s_prec)
+            agg_side = _AGGRESSOR_SIDE_MAP.get(aggressor_sides[i], AggressorSide.NO_AGGRESSOR)
+            trades.append(TradeTick(
+                instrument_id=inst_id,
+                price=p,
+                size=s,
+                aggressor_side=agg_side,
+                trade_id=TradeId(str(trade_ids[i])),
+                ts_event=int(ts),
+                ts_init=int(ts_inits[i]),
+            ))
+
+        del table, raw_p, raw_s, aggressor_sides, trade_ids
+        del ts_events, ts_inits, prices, sizes
 
     logger.info("Loaded %d TradeTick objects for %s", len(trades), inst_str)
     return trades

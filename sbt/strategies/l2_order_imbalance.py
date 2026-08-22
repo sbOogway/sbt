@@ -15,12 +15,13 @@ class L2OrderImbalanceConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     instrument_id: InstrumentId
     capital: Decimal = Decimal("1000")
     leverage: float = 1.0
-    risk_percent: float = 0.5
     backtest_start_date: str = "2020-01-01"
 
     imbalance_threshold: float = 0.6  # Imbalance threshold: (bid - ask) / (bid + ask)
-    trade_size: float = 0.1
     cooldown_events: int = 50
+    # Fraction of current account equity (times leverage) traded as notional
+    # per entry, e.g. 0.02 -> $20 notional on a $1000 account at 1x.
+    capital_fraction: float = 0.02
 
 
 class L2OrderImbalance(Strategy):
@@ -104,10 +105,31 @@ class L2OrderImbalance(Strategy):
 
     def _submit_market(self, order_side: OrderSide) -> None:
         instrument = self.cache.instrument(self.instrument_id)
-        qty = instrument.make_qty(Decimal(str(self.config.trade_size)))
+        ref_price = self._mid_price()
+        if ref_price is None:
+            return
+
+        notional = self._equity(instrument) * self.config.leverage * self.config.capital_fraction
+        qty = instrument.make_qty(Decimal(str(notional / ref_price)))
+        if qty.as_double() <= 0:
+            return
+
         order = self.order_factory.market(
             instrument_id=self.instrument_id,
             order_side=order_side,
             quantity=qty,
         )
         self.submit_order(order)
+
+    def _mid_price(self) -> float | None:
+        if not self._bids or not self._asks:
+            return None
+        return (max(self._bids) + min(self._asks)) / 2
+
+    def _equity(self, instrument) -> float:
+        account = self.portfolio.account(self.instrument_id.venue)
+        if account is not None:
+            money = account.balance_total(instrument.quote_currency)
+            if money is not None:
+                return float(money)
+        return float(self.config.capital)
