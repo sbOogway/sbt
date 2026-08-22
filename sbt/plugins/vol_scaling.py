@@ -28,6 +28,8 @@ from .base import SBTStrategyConfig, SizingPlugin
 
 class VolScalingPlugin(SizingPlugin):
     name = "vol_scaling"
+    required_config_fields = ("rv_lookback", "vol_max_scale")
+    optional_config_fields = ("vol_rebalance_freq", "vol_track_daily")
 
     def __init__(self, config: SBTStrategyConfig) -> None:
         super().__init__(config)
