@@ -1,5 +1,9 @@
 # SBT — Strategy Backtesting Tool
 
+> **Agents:** before modifying code, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —
+> module map, execution pipeline, plugin contracts, server protocol,
+> persistence schema, and gotchas. This file stays the quick ops manual.
+
 Backtesting framework on [nautilus-trader](https://nautilustrader.io) + [ccxt](https://ccxt.readthedocs.io/) for crypto perpetual futures.
 
 ## Commands
