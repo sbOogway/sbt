@@ -14,12 +14,12 @@ Usage (standalone)::
 import glob
 from decimal import Decimal
 import dataclasses
-import glob
+import re
 import time
+from pathlib import Path
 
 import pandas as pd
 from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.backtest.models import FillModel
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.model.currencies import USDC, USDT, Currency
 from nautilus_trader.model.data import Bar, BarType, FundingRateUpdate
@@ -27,10 +27,9 @@ from nautilus_trader.model.enums import AccountType, BookType, OmsType
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money, Price, Quantity
 
-from ..stats import AnnualizedReturn, CalmarRatio, system_quality_number
-from ..stats import RunConfig as RunConfigStat
+from ..stats import AnnualizedReturn, CalmarRatio, RunConfigStatistic, system_quality_number
 from ..utils import get_strategy_class, make_perpetual, parse_interval
-from ..plugins import IN_SAMPLE, OUT_OF_SAMPLE, TrainValSplit
+from ..plugins import RunnerPlugin, Window, get_runner_plugin_class
 from .config import RunConfig
 from .job import BacktestResult, JobStatus
 from .l2 import list_l2_instruments, load_l2_instrument, load_order_book_deltas, load_trade_ticks
@@ -39,6 +38,88 @@ _CURRENCY_MAP = {
     "USDT": USDT,
     "USDC": USDC,
 }
+
+# Positions/fills reports above this row count are spilled to parquet under
+# reports/artifacts/{job_id}/ instead of being embedded in the result (and
+# then in every DB row / ZMQ payload).
+INLINE_ROW_BUDGET = 200
+
+
+def _jsonable_records(df: pd.DataFrame) -> list[dict]:
+    """DataFrame -> list of JSON-serializable dicts.
+
+    Results travel over ZMQ and into SQLite as JSON; engine report frames
+    carry pandas.Timestamp / numpy scalars that json.dumps chokes on.
+    """
+    d = df.copy()
+    for col in d.columns:
+        if pd.api.types.is_datetime64_any_dtype(d[col]):
+            d[col] = d[col].apply(
+                lambda v: v.isoformat() if pd.notna(v) else None
+            )
+    out = []
+    for rec in d.to_dict("records"):
+        clean = {}
+        for k, v in rec.items():
+            if isinstance(v, pd.Timestamp) or isinstance(
+                v, __import__("datetime").datetime
+            ):
+                v = v.isoformat()
+            elif hasattr(v, "item"):  # numpy scalars
+                try:
+                    v = v.item()
+                except (ValueError, AttributeError):
+                    pass
+            elif isinstance(v, bytes):
+                v = v.decode("utf-8", errors="replace")
+            clean[k] = v
+        out.append(clean)
+    return out
+
+
+def _spill_artifacts(
+    job_id: str, positions_df: pd.DataFrame, fills_df: pd.DataFrame
+) -> dict:
+    """Package positions/fills for BacktestResult, spilling big ones to disk."""
+    out: dict = {
+        "positions": [],
+        "fills": [],
+        "positions_path": None,
+        "fills_path": None,
+        "positions_count": int(len(positions_df)),
+        "fills_count": int(len(fills_df)),
+    }
+    needs_spill = max(len(positions_df), len(fills_df)) > INLINE_ROW_BUDGET
+    if not needs_spill:
+        out["positions"] = (
+            _jsonable_records(positions_df) if len(positions_df) else []
+        )
+        out["fills"] = _jsonable_records(fills_df) if len(fills_df) else []
+        return out
+
+    artifact_dir = Path("reports") / "artifacts" / job_id
+    try:
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        if len(positions_df):
+            p = artifact_dir / "positions.parquet"
+            positions_df.to_parquet(p)
+            out["positions_path"] = str(p.resolve())
+        if len(fills_df):
+            f = artifact_dir / "fills.parquet"
+            fills_df.to_parquet(f)
+            out["fills_path"] = str(f.resolve())
+        print(
+            f"Artifacts spilled to {artifact_dir} "
+            f"(positions={out['positions_count']}, fills={out['fills_count']})"
+        )
+    except Exception as e:
+        # Parquet write failed — keep inline rather than lose the data.
+        print(f"WARNING: artifact spill failed ({e}); embedding rows inline")
+        out["positions_path"] = None
+        out["fills_path"] = None
+        out["positions"] = _jsonable_records(positions_df) if len(positions_df) else []
+        out["fills"] = _jsonable_records(fills_df) if len(fills_df) else []
+    return out
 
 
 # ------------------------------------------------------------------
@@ -61,24 +142,45 @@ def _fmt_metric(value) -> str:
     return f"{value:,}"
 
 
-def load_bars(df: pd.DataFrame, bar_type: BarType) -> list[Bar]:
-    """Convert an OHLCV DataFrame into a list of Nautilus Bar objects."""
-    bars = []
-    for row in df.itertuples(index=False):
-        ts_nanos = dt_to_unix_nanos(row.timestamp)
-        bars.append(
-            Bar(
-                bar_type=bar_type,
-                open=Price(row.open, precision=1),
-                high=Price(row.high, precision=1),
-                low=Price(row.low, precision=1),
-                close=Price(row.close, precision=1),
-                volume=Quantity(row.volume, precision=3),
-                ts_event=ts_nanos,
-                ts_init=ts_nanos,
-            )
+def load_bars(
+    df: pd.DataFrame, bar_type: BarType, instrument=None
+) -> list[Bar]:
+    """Convert an OHLCV DataFrame into a list of Nautilus Bar objects.
+
+    Iterates plain numpy arrays rather than DataFrame rows (itertuples
+    boxes each row into a namedtuple); nautilus' ``BarDataWrangler`` was
+    tried here but raises "buffer source array is read-only" on every
+    input shape under nautilus 1.230.0.
+    """
+    if instrument is not None:
+        price_precision = instrument.price_precision
+        size_precision = instrument.size_precision
+    else:
+        price_precision, size_precision = 1, 3
+
+    # Normalize to int64 nanos regardless of source resolution (feathers
+    # may carry datetime64[ms]/[us]); naive stamps are assumed UTC.
+    stamp = pd.to_datetime(df["timestamp"], utc=True).dt.as_unit("ns")
+    ts_nanos = stamp.astype("int64").to_numpy()
+    opens = df["open"].to_numpy()
+    highs = df["high"].to_numpy()
+    lows = df["low"].to_numpy()
+    closes = df["close"].to_numpy()
+    volumes = df["volume"].to_numpy()
+
+    return [
+        Bar(
+            bar_type=bar_type,
+            open=Price(opens[i], precision=price_precision),
+            high=Price(highs[i], precision=price_precision),
+            low=Price(lows[i], precision=price_precision),
+            close=Price(closes[i], precision=price_precision),
+            volume=Quantity(volumes[i], precision=size_precision),
+            ts_event=ts_nanos[i],
+            ts_init=ts_nanos[i],
         )
-    return bars
+        for i in range(len(df))
+    ]
 
 
 def load_funding_rates(df: pd.DataFrame, instrument_id) -> list[FundingRateUpdate]:
@@ -97,30 +199,87 @@ def load_funding_rates(df: pd.DataFrame, instrument_id) -> list[FundingRateUpdat
     return updates
 
 
+def _feather_range(path: str) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    """Parse the _YYYYMMDD_YYYYMMDD suffix convention into (start, end)."""
+    m = re.search(r"_(\d{8})_(\d{8})\.feather$", path)
+    if not m:
+        return None
+    s, e = m.group(1), m.group(2)
+    return (
+        pd.Timestamp(f"{s[:4]}-{s[4:6]}-{s[6:]}", tz="UTC"),
+        pd.Timestamp(f"{e[:4]}-{e[4:6]}-{e[6:]} 23:59:59", tz="UTC"),
+    )
+
+
 def find_feather(
     exchange: str,
     symbol: str,
     interval: str,
     search_dirs: list[str] | None = None,
+    start: str | None = None,
+    end: str | None = None,
 ) -> str | None:
     """Discover a feather data file by convention.
 
     Searches *search_dirs* (defaulting to ``["data", "."]``) for files
-    matching ``{exchange}_{symbol}_{interval}_*.feather``.
+    matching ``{exchange}_{symbol}_{interval}_*.feather``. Unprefixed
+    ``{symbol}_{interval}_*.feather`` files are considered only when they
+    are the unique match in a directory (never preferred over prefixed
+    ones). When several files match, the one best covering [start, end]
+    wins (full coverage first, then max overlap, then newest range); the
+    chosen file is printed.
     """
     if search_dirs is None:
         search_dirs = ["data", "."]
 
     raw_symbol = symbol.replace("/", "")
+    req_start = _to_utc_ts(start) if start else None
+    req_end = _to_utc_ts(end) if end else None
+
     for d in search_dirs:
-        pattern = f"{d}/{exchange.lower()}_{raw_symbol}_{interval}_*.feather"
-        files = sorted(glob.glob(pattern))
-        if files:
-            return files[-1]
-        pattern = f"{d}/{raw_symbol}_{interval}_*.feather"
-        files = sorted(glob.glob(pattern))
-        if files:
-            return files[-1]
+        prefixed = sorted(
+            glob.glob(f"{d}/{exchange.lower()}_{raw_symbol}_{interval}_*.feather")
+        )
+        bare = [
+            f
+            for f in sorted(glob.glob(f"{d}/{raw_symbol}_{interval}_*.feather"))
+            if f not in prefixed
+        ]
+        candidates = prefixed or (bare if len(bare) == 1 else [])
+        if not candidates:
+            continue
+
+        def rank(path: str):
+            rng = _feather_range(path)
+            if rng is None:
+                return (-1, pd.Timedelta(0), pd.Timestamp(0))
+            fs, fe = rng
+            if req_start is None:
+                return (0, pd.Timedelta(0), fe)
+            lo = req_start
+            hi = req_end if req_end is not None else fe
+            covers = fs <= lo and fe >= hi
+            overlap = min(fe, hi) - max(fs, lo)
+            return (1 if covers else 0, overlap, fe)
+
+        choice = max(candidates, key=rank)
+        if len(candidates) > 1:
+            print(
+                f"find_feather: {len(candidates)} matches; chose {choice}"
+            )
+        return choice
+    return None
+
+
+# ------------------------------------------------------------------
+# Runner-plugin resolution
+# ------------------------------------------------------------------
+
+
+def resolve_runner_plugin(cfg: RunConfig) -> RunnerPlugin | None:
+    """Map flat RunConfig fields onto registered runner plugins."""
+    if cfg.train_val_split is not None:
+        return get_runner_plugin_class("train_val_split")(cfg.train_val_split)
     return None
 
 
@@ -149,45 +308,31 @@ class BacktestRunner:
     def run(self, job_id: str = "standalone") -> BacktestResult:
         """Execute the backtest and return a structured result.
 
-        When ``config.train_val_split`` is set the data range is divided into
-        an in-sample and an out-of-sample window; both run through the normal
-        execution path and are merged with OOS metrics on top.
+        A configured runner plugin (flat ``train_val_split`` field today)
+        expands the job into windows; each window runs through the normal
+        execution path and the plugin merges them into one result.
         """
-        if self.config.train_val_split is not None:
-            return self._run_split(job_id)
+        plugin = resolve_runner_plugin(self.config)
+        if plugin is not None:
+            return self._run_windows(job_id, plugin)
         return self._run_window(job_id, start=self.config.start, end=self.config.end)
 
     # ------------------------------------------------------------------
-    # Train/val holdout split orchestration
+    # Windowed execution (runner plugins)
     # ------------------------------------------------------------------
 
-    def _run_split(self, job_id: str) -> BacktestResult:
+    def _run_windows(self, job_id: str, plugin: RunnerPlugin) -> BacktestResult:
         cfg = self.config
-        try:
-            splitter = TrainValSplit(cfg.train_val_split)
-        except ValueError as e:
-            return BacktestResult(
-                job_id=job_id,
-                status=JobStatus.FAILED,
-                error=str(e),
-            )
 
-        full_df: pd.DataFrame | None = None
-        if cfg.data_type == "l2":
-            if not cfg.end:
-                return BacktestResult(
-                    job_id=job_id,
-                    status=JobStatus.FAILED,
-                    error="train_val_split requires an explicit 'end' date",
-                )
-            range_start = pd.Timestamp(cfg.start, tz="UTC")
-            range_end = pd.Timestamp(cfg.end, tz="UTC")
-        else:
+        df: pd.DataFrame | None = None
+        if cfg.data_type != "l2":
             feather_path = cfg.feather_path or find_feather(
                 cfg.exchange,
                 cfg.symbol,
                 cfg.interval,
                 search_dirs=[cfg.data_dir, "."],
+                start=cfg.start,
+                end=cfg.end,
             )
             if not feather_path:
                 return BacktestResult(
@@ -197,8 +342,7 @@ class BacktestRunner:
                 )
             print(f"Loading data from {feather_path}...")
             try:
-                full_df = pd.read_feather(feather_path)
-                full_df = full_df[
+                df = pd.read_feather(feather_path)[
                     ["timestamp", "open", "high", "low", "close", "volume"]
                 ]
             except FileNotFoundError:
@@ -208,60 +352,37 @@ class BacktestRunner:
                     error=f"Feather file '{feather_path}' not found.",
                 )
 
-            start_ts = _to_utc_ts(cfg.start)
-            full_df = full_df[full_df["timestamp"] >= start_ts].reset_index(drop=True)
+            df = df[df["timestamp"] >= _to_utc_ts(cfg.start)].reset_index(drop=True)
             if cfg.end:
-                end_ts = _to_utc_ts(cfg.end)
-                full_df = full_df[full_df["timestamp"] <= end_ts].reset_index(drop=True)
+                df = df[df["timestamp"] <= _to_utc_ts(cfg.end)].reset_index(drop=True)
 
-            if len(full_df) < 2:
-                return BacktestResult(
-                    job_id=job_id,
-                    status=JobStatus.FAILED,
-                    error=(
-                        f"Not enough bars for train/val split "
-                        f"({len(full_df)} rows after date filtering)."
-                    ),
-                )
-            range_start = full_df["timestamp"].iloc[0]
-            range_end = full_df["timestamp"].iloc[-1]
+        try:
+            windows: dict[str, Window] = plugin.expand(cfg, df)
+        except ValueError as e:
+            return BacktestResult(
+                job_id=job_id,
+                status=JobStatus.FAILED,
+                error=str(e),
+            )
 
-        split_ts = splitter.split_timestamp(range_start, range_end)
-        windows = {
-            IN_SAMPLE: (range_start, split_ts),
-            OUT_OF_SAMPLE: (split_ts, range_end),
-        }
-
+        self.window_engines = {}
         results: dict[str, BacktestResult] = {}
-        for key, (w_start, w_end) in windows.items():
-            label = {"in_sample": "In-Sample", "out_of_sample": "Out-of-Sample"}[key]
-            print(f"\n--- {label} window: {w_start} -> {w_end} ---")
+        for key, win in windows.items():
+            print(f"\n--- {win.label} window: {win.start} -> {win.end} ---")
             res = self._run_window(
                 f"{job_id}:{key}",
-                start=w_start,
-                end=w_end,
-                df=full_df,
+                start=win.start,
+                end=win.end,
+                df=win.df,
+                pre_sliced=True,
             )
             results[key] = res
             if res.status != JobStatus.DONE:
                 return res
             self.window_engines[key] = self.engine
 
-        combined = splitter.combine(job_id, results, windows)
-        is_res, oos_res = results[IN_SAMPLE], results[OUT_OF_SAMPLE]
-        print("\n========== TRAIN/VAL SPLIT SUMMARY ==========")
-        print(
-            f"{'metric':<16} {'in-sample':>14} {'out-of-sample':>15}"
-        )
-        for name, is_v, oos_v in (
-            ("Sharpe", is_res.sharpe_ratio, oos_res.sharpe_ratio),
-            ("Trades", is_res.num_trades, oos_res.num_trades),
-            ("PnL", is_res.pnl, oos_res.pnl),
-            ("SQN", is_res.sqn, oos_res.sqn),
-        ):
-            print(
-                f"{name:<16} {_fmt_metric(is_v):>14} {_fmt_metric(oos_v):>15}"
-            )
+        combined = plugin.combine(job_id, results, windows)
+        plugin.summarize(results)
         return combined
 
     # ------------------------------------------------------------------
@@ -274,11 +395,14 @@ class BacktestRunner:
         start: str | pd.Timestamp,
         end: str | pd.Timestamp | None,
         df: pd.DataFrame | None = None,
+        pre_sliced: bool = False,
     ) -> BacktestResult:
         """Execute one backtest over the [start, end] window.
 
-        *df* may carry a preloaded OHLCV frame (split mode) to avoid a second
-        feather read; it is filtered to the window bounds here.
+        *df* may carry a preloaded OHLCV frame (split mode); with
+        ``pre_sliced=True`` the frame is trusted to include any warm-up
+        bars ahead of *start* (trading gates via strategy ``active_from``),
+        so only the upper bound is applied here.
         """
         t0 = time.monotonic()
         cfg = self.config
@@ -326,7 +450,6 @@ class BacktestRunner:
                 cfg.settle_currency, Currency(cfg.settle_currency, 2, 0, cfg.settle_currency, 0)
             )
 
-            fill_model = FillModel(prob_slippage=1.0) if cfg.slippage_ticks > 0 else None
             engine.add_venue(
                 venue=venue,
                 oms_type=OmsType.NETTING,
@@ -334,7 +457,6 @@ class BacktestRunner:
                 base_currency=settle_currency,
                 starting_balances=[Money(cfg.capital, settle_currency)],
                 default_leverage=Decimal(str(cfg.leverage)),
-                fill_model=fill_model,
                 book_type=BookType.L2_MBP,
             )
             engine.add_instrument(instrument)
@@ -369,6 +491,7 @@ class BacktestRunner:
                 "capital": cfg.capital,
                 "leverage": cfg.leverage,
                 "backtest_start_date": _to_utc_ts(start).strftime("%Y-%m-%d"),
+                "active_from": _to_utc_ts(start).isoformat(),
                 **cfg.strategy_params,
             }
 
@@ -376,8 +499,11 @@ class BacktestRunner:
             if "bar_type" in annotations or hasattr(ConfigClass, "bar_type"):
                 try:
                     interval_nt = parse_interval(cfg.interval)
-                except Exception:
-                    interval_nt = "1-MINUTE"
+                except ValueError as e:
+                    raise ValueError(
+                        f"Cannot build bar_type for L2 strategy "
+                        f"'{cfg.strategy_name}': {e}"
+                    ) from e
                 bar_type = BarType.from_str(
                     f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL"
                 )
@@ -395,6 +521,8 @@ class BacktestRunner:
                     cfg.symbol,
                     cfg.interval,
                     search_dirs=[cfg.data_dir, "."],
+                    start=cfg.start,
+                    end=cfg.end,
                 )
                 if not feather_path:
                     return BacktestResult(
@@ -425,10 +553,16 @@ class BacktestRunner:
                 )
 
             window_start = _to_utc_ts(start)
-            df = df[df["timestamp"] >= window_start].reset_index(drop=True)
             window_end = _to_utc_ts(end) if end is not None else None
-            if window_end is not None:
-                df = df[df["timestamp"] <= window_end].reset_index(drop=True)
+            if pre_sliced:
+                # Caller sliced the frame (incl. warm-up bars before start);
+                # only trim the upper bound.
+                if window_end is not None:
+                    df = df[df["timestamp"] <= window_end].reset_index(drop=True)
+            else:
+                df = df[df["timestamp"] >= window_start].reset_index(drop=True)
+                if window_end is not None:
+                    df = df[df["timestamp"] <= window_end].reset_index(drop=True)
 
             if len(df) < 2:
                 return BacktestResult(
@@ -458,7 +592,6 @@ class BacktestRunner:
             engine = BacktestEngine(config=BacktestEngineConfig())
             self.engine = engine
 
-            fill_model = FillModel(prob_slippage=1.0) if cfg.slippage_ticks > 0 else None
             engine.add_venue(
                 venue=venue,
                 oms_type=OmsType.NETTING,
@@ -466,7 +599,6 @@ class BacktestRunner:
                 base_currency=settle_currency,
                 starting_balances=[Money(cfg.capital, settle_currency)],
                 default_leverage=leverage_dec,
-                fill_model=fill_model,
             )
 
             base_code = cfg.symbol.split("/")[0]
@@ -496,11 +628,12 @@ class BacktestRunner:
                 capital=cfg.capital,
                 leverage=cfg.leverage,
                 backtest_start_date=window_start.strftime("%Y-%m-%d"),
+                active_from=window_start.isoformat(),
                 **cfg.strategy_params,
             )
 
             print(f"Loaded {len(df)} {cfg.interval} bars (ref_price={ref_price}).")
-            bars = load_bars(df, bar_type)
+            bars = load_bars(df, bar_type, instrument)
             engine.add_data(bars)
 
             funding_path = find_feather(
@@ -541,7 +674,7 @@ class BacktestRunner:
             "slippage_ticks": f"{cfg.slippage_ticks}",
             "strategy": cfg.strategy_name,
         }
-        engine.portfolio.analyzer.register_statistic(RunConfigStat(**run_params))
+        engine.portfolio.analyzer.register_statistic(RunConfigStatistic(**run_params))
 
         # -- Run -------------------------------------------------------
         strategy = StrategyClass(config=strategy_config)
@@ -574,10 +707,11 @@ class BacktestRunner:
         sharpe = stats_returns.get("Sharpe Ratio (252 days)")
         num_trades = len(positions_df)
 
-        # Funding side-channel
-        funding_pnl = 0.0
-        if hasattr(strategy, "_trade_funding_costs") and strategy._trade_funding_costs:
-            funding_pnl = float(sum(strategy._trade_funding_costs))
+        # Funding side-channel (typed tracker on SBTStrategy subclasses)
+        funding_tracker = getattr(strategy, "funding", None)
+        funding_pnl = (
+            float(funding_tracker.total_paid) if funding_tracker is not None else 0.0
+        )
 
         elapsed = time.monotonic() - t0
 
@@ -589,9 +723,7 @@ class BacktestRunner:
             pnl=float(pnl) if pnl is not None else None,
             sqn=sqn,
             stats=all_stats,
-            equity_curve=[],  # populated by report layer if needed
-            positions=positions_df.to_dict("records") if len(positions_df) else [],
-            fills=fills_df.to_dict("records") if len(fills_df) else [],
             funding_pnl=funding_pnl,
             duration_seconds=elapsed,
+            **_spill_artifacts(job_id, positions_df, fills_df),
         )

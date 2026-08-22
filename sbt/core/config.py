@@ -1,10 +1,12 @@
 """Fully resolved backtest configuration."""
 
 import argparse
+import dataclasses
 import tomllib
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
+from typing import Union, get_args, get_origin, get_type_hints
 
 
 @dataclass
@@ -13,6 +15,10 @@ class RunConfig:
 
     Constructed from a TOML config file + CLI overrides, or directly
     by the server/optimizer when dispatching jobs.
+
+    Serialization is fields-derived: :meth:`to_dict` / :meth:`from_dict`
+    walk ``dataclasses.fields`` and coerce values to the annotated types,
+    so adding a field never requires touching the codec.
     """
 
     exchange: str
@@ -36,80 +42,43 @@ class RunConfig:
     # Holdout split: fraction of the data span used for in-sample; the rest
     # is out-of-sample (e.g. 0.7 -> 70% train / 30% validation).
     train_val_split: float | None = None
+    # Bars loaded before each window's trading start so indicators/plugins
+    # warm up without polluting window metrics (orders are gated off).
+    warmup_bars: int | None = None
+    # Open the generated tearsheet in a browser after the run.
+    open_report: bool = True
 
     def with_overrides(self, params: dict) -> "RunConfig":
         """Return a copy with strategy_params updated from *params*."""
-        merged = {**self.strategy_params, **params}
-        return RunConfig(
-            exchange=self.exchange,
-            symbol=self.symbol,
-            interval=self.interval,
-            strategy_name=self.strategy_name,
-            strategy_params=merged,
-            capital=self.capital,
-            leverage=self.leverage,
-            start=self.start,
-            end=self.end,
-            maker_fee=self.maker_fee,
-            taker_fee=self.taker_fee,
-            settle_currency=self.settle_currency,
-            slippage_ticks=self.slippage_ticks,
-            tick_size=self.tick_size,
-            feather_path=self.feather_path,
-            data_dir=self.data_dir,
-            data_type=self.data_type,
-            l2_max_files=self.l2_max_files,
-            train_val_split=self.train_val_split,
+        return dataclasses.replace(
+            self, strategy_params={**self.strategy_params, **params}
         )
 
     def to_dict(self) -> dict:
         """Convert RunConfig to a JSON-serializable dictionary."""
+        hints = get_type_hints(type(self))
         return {
-            "exchange": self.exchange,
-            "symbol": self.symbol,
-            "interval": self.interval,
-            "strategy_name": self.strategy_name,
-            "strategy_params": self.strategy_params,
-            "capital": str(self.capital),
-            "leverage": self.leverage,
-            "start": self.start,
-            "end": self.end,
-            "maker_fee": str(self.maker_fee),
-            "taker_fee": str(self.taker_fee),
-            "settle_currency": self.settle_currency,
-            "slippage_ticks": self.slippage_ticks,
-            "tick_size": self.tick_size,
-            "feather_path": self.feather_path,
-            "data_dir": self.data_dir,
-            "data_type": self.data_type,
-            "l2_max_files": self.l2_max_files,
-            "train_val_split": self.train_val_split,
+            f.name: (
+                str(getattr(self, f.name)) if hints[f.name] is Decimal else getattr(self, f.name)
+            )
+            for f in dataclasses.fields(self)
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "RunConfig":
-        """Reconstruct RunConfig from a dictionary."""
-        return cls(
-            exchange=d["exchange"],
-            symbol=d["symbol"],
-            interval=d.get("interval", "5m"),
-            strategy_name=d["strategy_name"],
-            strategy_params=d.get("strategy_params", {}),
-            capital=Decimal(str(d.get("capital", "1000"))),
-            leverage=float(d.get("leverage", 1.0)),
-            start=d.get("start", "2020-01-01"),
-            end=d.get("end"),
-            maker_fee=Decimal(str(d.get("maker_fee", "0.0"))),
-            taker_fee=Decimal(str(d.get("taker_fee", "0.0"))),
-            settle_currency=d.get("settle_currency", "USDT"),
-            slippage_ticks=int(d.get("slippage_ticks", 0)),
-            tick_size=float(d.get("tick_size", 0.1)),
-            feather_path=d.get("feather_path"),
-            data_dir=d.get("data_dir", "data"),
-            data_type=d.get("data_type", "bar"),
-            l2_max_files=d.get("l2_max_files"),
-            train_val_split=d.get("train_val_split"),
-        )
+        """Reconstruct RunConfig from a dictionary (unknown keys ignored).
+
+        Values arriving over JSON / CLI strings are coerced to the annotated
+        field types so downstream math never sees e.g. a string leverage.
+        """
+        known = {f.name: f for f in dataclasses.fields(cls)}
+        hints = get_type_hints(cls)
+        kwargs = {}
+        for key, value in d.items():
+            if key not in known or value is None:
+                continue
+            kwargs[key] = _coerce(value, hints[key])
+        return cls(**kwargs)
 
     # ------------------------------------------------------------------
     # Construction helpers
@@ -122,7 +91,10 @@ class RunConfig:
         strategy_name: str,
         cli_overrides: dict | None = None,
     ) -> "RunConfig":
-        """Build a RunConfig from a TOML file + optional CLI overrides."""
+        """Build a RunConfig from a TOML file + optional CLI overrides.
+
+        The ``[run]`` table maps 1:1 onto field names; CLI overrides win.
+        """
         path = Path(toml_path)
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
@@ -130,39 +102,17 @@ class RunConfig:
         with path.open("rb") as f:
             cfg = tomllib.load(f)
 
-        run = cfg.get("run", {})
+        data = dict(cfg.get("run", {}))
+        for k, v in (cli_overrides or {}).items():
+            if v is not None:
+                data["feather_path" if k == "feather" else k] = v
 
-        overrides = {k: v for k, v in (cli_overrides or {}).items() if v is not None}
+        # Infer L2 mode from instrument format or explicit request.
+        if "-LINEAR." in str(data.get("symbol", "")) or data.get("data_type") == "l2":
+            data["data_type"] = "l2"
 
-        # Infer l2 data_type if instrument format matches or explicitly set
-        data_type = overrides.get("data_type", run.get("data_type", "bar"))
-        symbol = overrides.get("symbol", run.get("symbol", "BTC/USDT"))
-        if "-LINEAR." in symbol or data_type == "l2":
-            data_type = "l2"
-
-        return cls(
-            exchange=overrides.get("exchange", run.get("exchange", "BINANCE")),
-            symbol=symbol,
-            interval=overrides.get("interval", run.get("interval", "5m")),
-            strategy_name=strategy_name,
-            strategy_params={},
-            capital=Decimal(str(run.get("capital", "1000"))),
-            leverage=float(overrides.get("leverage", run.get("leverage", 1.0))),
-            start=overrides.get("start", run.get("start", "2020-01-01")),
-            end=overrides.get("end", run.get("end")),
-            maker_fee=Decimal(str(run.get("maker_fee", "0.0"))),
-            taker_fee=Decimal(str(run.get("taker_fee", "0.0"))),
-            settle_currency=run.get("settle_currency", "USDT"),
-            slippage_ticks=int(run.get("slippage_ticks", 0)),
-            tick_size=float(run.get("tick_size", 0.1)),
-            feather_path=overrides.get("feather"),
-            data_dir=run.get("data_dir", "data"),
-            data_type=data_type,
-            l2_max_files=overrides.get("l2_max_files", run.get("l2_max_files")),
-            train_val_split=overrides.get(
-                "train_val_split", run.get("train_val_split")
-            ),
-        )
+        data["strategy_name"] = strategy_name
+        return cls.from_dict(data)
 
     @classmethod
     def parse_cli(cls) -> "RunConfig":
@@ -183,6 +133,14 @@ class RunConfig:
         parser.add_argument("--start", help="Override backtest start date from config")
         parser.add_argument("--end", help="Override backtest end date from config")
         parser.add_argument(
+            "--warmup-bars",
+            type=int,
+            help=(
+                "Bars loaded before each window's trading start for indicator "
+                "warm-up (used with --train-val-split)"
+            ),
+        )
+        parser.add_argument(
             "--data-type",
             choices=["bar", "l2"],
             help="Data type: 'bar' (OHLCV) or 'l2' (OrderBookDelta + TradeTicks)",
@@ -202,6 +160,11 @@ class RunConfig:
             ),
         )
         parser.add_argument(
+            "--no-open",
+            action="store_true",
+            help="Do not open the tearsheet in a browser after the run",
+        )
+        parser.add_argument(
             "--strategy",
             default="bitcoin_intraday_momentum",
             help="Strategy section name in config (default: bitcoin_intraday_momentum)",
@@ -219,8 +182,29 @@ class RunConfig:
                 "start": args.start,
                 "end": args.end,
                 "feather": args.feather,
+                "warmup_bars": args.warmup_bars,
                 "data_type": args.data_type,
                 "l2_max_files": args.l2_max_files,
                 "train_val_split": args.train_val_split,
+                "open_report": not args.no_open,
             },
         )
+
+
+def _coerce(value, tp):
+    """Coerce *value* to the annotated type *tp* (JSON/CLI friendly)."""
+    origin = get_origin(tp)
+    if origin is Union:  # Optional[X] -> X
+        args = [a for a in get_args(tp) if a is not type(None)]
+        if len(args) != 1:
+            return value
+        tp = args[0]
+    if tp is Decimal:
+        return Decimal(str(value))
+    if tp in (int, float, str):
+        return tp(value)
+    if tp is bool:
+        if isinstance(value, str):
+            return value.lower() in {"1", "true", "yes"}
+        return bool(value)
+    return value

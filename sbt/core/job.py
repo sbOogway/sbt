@@ -27,6 +27,13 @@ class BacktestJob:
     )
     worker_id: str | None = None
     study_name: str | None = None
+    # Hard wall-clock budget for one execution attempt; the scheduler's
+    # reaper kills the worker and requeues/fails the job past this point.
+    timeout_seconds: int = 3600
+    # Number of times this job has been handed to a worker. Requeues
+    # (ACK timeout, worker death) increment it; jobs exceeding the
+    # scheduler's max-attempts policy are failed instead of retried.
+    attempts: int = 0
 
     def to_dict(self) -> dict:
         """Convert BacktestJob to a JSON-serializable dictionary."""
@@ -37,6 +44,8 @@ class BacktestJob:
             "submitted_at": self.submitted_at.isoformat(),
             "worker_id": self.worker_id,
             "study_name": self.study_name,
+            "timeout_seconds": self.timeout_seconds,
+            "attempts": self.attempts,
         }
 
     @classmethod
@@ -57,6 +66,8 @@ class BacktestJob:
             submitted_at=submitted_at,
             worker_id=d.get("worker_id"),
             study_name=d.get("study_name"),
+            timeout_seconds=int(d.get("timeout_seconds", 3600)),
+            attempts=int(d.get("attempts", 0)),
         )
 
 
@@ -78,7 +89,6 @@ class BacktestResult:
     sqn: float | None = None
     # --- full engine output ---
     stats: dict = field(default_factory=dict)
-    equity_curve: list[dict] = field(default_factory=list)
     positions: list[dict] = field(default_factory=list)
     fills: list[dict] = field(default_factory=list)
     tearsheet_path: str | None = None
@@ -88,6 +98,13 @@ class BacktestResult:
     # Per-window metrics when a runner plugin split the job into windows
     # (e.g. train/val holdout): {"in_sample": {...}, "out_of_sample": {...}}.
     splits: dict = field(default_factory=dict)
+    # When positions/fills exceed the inline-row budget they are spilled to
+    # parquet under reports/artifacts/{job_id}/ and carried by path + count;
+    # the inline lists stay empty in that case.
+    positions_path: str | None = None
+    fills_path: str | None = None
+    positions_count: int | None = None
+    fills_count: int | None = None
 
     def to_dict(self) -> dict:
         """Convert BacktestResult to a JSON-serializable dictionary."""
@@ -99,7 +116,6 @@ class BacktestResult:
             "pnl": self.pnl,
             "sqn": self.sqn,
             "stats": self.stats,
-            "equity_curve": self.equity_curve,
             "positions": self.positions,
             "fills": self.fills,
             "tearsheet_path": self.tearsheet_path,
@@ -107,6 +123,10 @@ class BacktestResult:
             "duration_seconds": self.duration_seconds,
             "funding_pnl": self.funding_pnl,
             "splits": self.splits,
+            "positions_path": self.positions_path,
+            "fills_path": self.fills_path,
+            "positions_count": self.positions_count,
+            "fills_count": self.fills_count,
         }
 
     @classmethod
@@ -120,7 +140,6 @@ class BacktestResult:
             pnl=d.get("pnl"),
             sqn=d.get("sqn"),
             stats=d.get("stats", {}),
-            equity_curve=d.get("equity_curve", []),
             positions=d.get("positions", []),
             fills=d.get("fills", []),
             tearsheet_path=d.get("tearsheet_path"),
@@ -128,4 +147,8 @@ class BacktestResult:
             duration_seconds=d.get("duration_seconds", 0.0),
             funding_pnl=d.get("funding_pnl", 0.0),
             splits=d.get("splits", {}),
+            positions_path=d.get("positions_path"),
+            fills_path=d.get("fills_path"),
+            positions_count=d.get("positions_count"),
+            fills_count=d.get("fills_count"),
         )

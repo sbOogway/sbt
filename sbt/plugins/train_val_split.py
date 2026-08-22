@@ -10,6 +10,7 @@ data.
 import pandas as pd
 
 from ..core.job import BacktestResult, JobStatus
+from .base import RunnerPlugin, Window
 
 IN_SAMPLE = "in_sample"
 OUT_OF_SAMPLE = "out_of_sample"
@@ -20,7 +21,7 @@ _WINDOW_LABELS = {
 }
 
 
-class TrainValSplit:
+class TrainValSplit(RunnerPlugin):
     name = "train_val_split"
 
     def __init__(self, split_fraction: float) -> None:
@@ -34,11 +35,75 @@ class TrainValSplit:
         """Timestamp dividing in-sample from out-of-sample windows."""
         return first_ts + (last_ts - first_ts) * self.split_fraction
 
+    def expand(
+        self, cfg, df: pd.DataFrame | None
+    ) -> dict[str, Window]:
+        """Derive IS/OOS windows from the (already date-filtered) data.
+
+        The boundary bar belongs to OOS only; IS ends one bar interval
+        earlier. When a bar frame is supplied, each OOS slice preloads
+        ``cfg.warmup_bars`` before its trading start so indicators warm up
+        while orders stay gated via ``active_from``.
+        """
+        if df is None:
+            # L2 / loader-fetched mode: explicit bounds are required.
+            if not cfg.end:
+                raise ValueError(
+                    "train_val_split requires an explicit 'end' date"
+                )
+            range_start = pd.Timestamp(cfg.start, tz="UTC")
+            range_end = pd.Timestamp(cfg.end, tz="UTC")
+            slices: dict[str, pd.DataFrame | None] = {
+                IN_SAMPLE: None,
+                OUT_OF_SAMPLE: None,
+            }
+        else:
+            ts = df["timestamp"]
+            if len(df) < 2:
+                raise ValueError(
+                    f"Not enough bars for train/val split ({len(df)} rows)."
+                )
+            range_start = ts.iloc[0]
+            range_end = ts.iloc[-1]
+
+        from ..utils import interval_delta  # deferred: utils pulls strategies
+
+        bar_delta = interval_delta(cfg.interval)
+        split_ts = self.split_timestamp(range_start, range_end)
+        is_end = split_ts - bar_delta
+
+        if df is not None:
+            warmup = max(getattr(cfg, "warmup_bars", 0) or 0, 0)
+            oos_load_from = (
+                split_ts - warmup * bar_delta if warmup else split_ts
+            )
+            oos_load_from = max(oos_load_from, range_start)
+            slices = {
+                IN_SAMPLE: df[
+                    (ts >= range_start) & (ts <= is_end)
+                ].reset_index(drop=True),
+                OUT_OF_SAMPLE: df[
+                    (ts >= oos_load_from) & (ts <= range_end)
+                ].reset_index(drop=True),
+            }
+
+        return {
+            IN_SAMPLE: Window(
+                _WINDOW_LABELS[IN_SAMPLE], range_start, is_end, slices[IN_SAMPLE]
+            ),
+            OUT_OF_SAMPLE: Window(
+                _WINDOW_LABELS[OUT_OF_SAMPLE],
+                split_ts,
+                range_end,
+                slices[OUT_OF_SAMPLE],
+            ),
+        }
+
     def combine(
         self,
         job_id: str,
         results: dict[str, BacktestResult],
-        windows: dict[str, tuple],
+        windows: dict[str, Window],
     ) -> BacktestResult:
         """Merge per-window results; OOS metrics become the top-level ones."""
         is_res = results.get(IN_SAMPLE)
@@ -53,15 +118,16 @@ class TrainValSplit:
 
         splits = {}
         for key, res in results.items():
-            start, end = windows.get(key, (None, None))
+            win = windows.get(key)
             splits[key] = {
                 "label": _WINDOW_LABELS.get(key, key),
-                "start": str(start) if start else None,
-                "end": str(end) if end else None,
+                "start": str(win.start) if win else None,
+                "end": str(win.end) if win else None,
                 "sharpe_ratio": res.sharpe_ratio,
                 "num_trades": res.num_trades,
                 "pnl": res.pnl,
                 "sqn": res.sqn,
+                "funding_pnl": res.funding_pnl,
                 "duration_seconds": res.duration_seconds,
             }
 
@@ -81,3 +147,20 @@ class TrainValSplit:
             funding_pnl=oos_res.funding_pnl,
             splits=splits,
         )
+
+    def summarize(self, results: dict[str, BacktestResult]) -> None:
+        is_res = results.get(IN_SAMPLE)
+        oos_res = results.get(OUT_OF_SAMPLE)
+        if is_res is None or oos_res is None:
+            return
+        print("\n========== TRAIN/VAL SPLIT SUMMARY ==========")
+        print(f"{'metric':<16} {'in-sample':>14} {'out-of-sample':>15}")
+        for name, is_v, oos_v in (
+            ("Sharpe", is_res.sharpe_ratio, oos_res.sharpe_ratio),
+            ("Trades", is_res.num_trades, oos_res.num_trades),
+            ("PnL", is_res.pnl, oos_res.pnl),
+            ("SQN", is_res.sqn, oos_res.sqn),
+        ):
+            from ..core.runner import _fmt_metric
+
+            print(f"{name:<16} {_fmt_metric(is_v):>14} {_fmt_metric(oos_v):>15}")
