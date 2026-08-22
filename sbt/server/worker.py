@@ -1,9 +1,11 @@
 """Worker process running in an isolated git worktree."""
 
 import argparse
+import json
 import logging
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import zmq
@@ -18,8 +20,15 @@ logging.basicConfig(
 logger = logging.getLogger("Worker")
 
 
-def ensure_worktree(worktree_path: Path, repo_root: Path) -> None:
-    """Create a git worktree for this worker and symlink the data dir."""
+def ensure_worktree(worktree_path: Path, repo_root: Path) -> bool:
+    """Create a git worktree for this worker and symlink the data dir.
+
+    Returns True when the directory holds its own checkout (linked git
+    worktree or standalone clone, detected via a `.git` entry), i.e. code
+    isolation is real. Returns False when only a plain mkdir fallback was
+    possible — callers must warn loudly because imports will fall through
+    to another tree.
+    """
     worktree_path = worktree_path.resolve()
     repo_root = repo_root.resolve()
 
@@ -35,7 +44,11 @@ def ensure_worktree(worktree_path: Path, repo_root: Path) -> None:
                 text=True,
             )
         except Exception as e:
-            logger.warning("git worktree creation failed: %s; falling back to mkdir", e)
+            logger.warning(
+                "git worktree creation failed: %s; falling back to plain mkdir "
+                "(DEGRADED code isolation)",
+                e,
+            )
             worktree_path.mkdir(parents=True, exist_ok=True)
 
     # Symlink data dir
@@ -50,6 +63,8 @@ def ensure_worktree(worktree_path: Path, repo_root: Path) -> None:
 
     # Ensure reports dir exists
     (worktree_path / "reports").mkdir(parents=True, exist_ok=True)
+
+    return (worktree_path / ".git").exists()
 
 
 def cleanup_worktree(worktree_path: Path, repo_root: Path) -> None:
@@ -92,6 +107,17 @@ class Worker:
             job.id,
             job.config.strategy_name,
         )
+        # Test hook: artificial per-job latency so durability tests can
+        # interrupt jobs deterministically (real backtests may finish in ms).
+        delay = float(os.environ.get("SBT_JOB_DELAY_S", "0"))
+        if delay > 0:
+            logger.info(
+                "[%s] Job %s: sleeping %.1fs (SBT_JOB_DELAY_S)",
+                self.worker_id,
+                job.id,
+                delay,
+            )
+            time.sleep(delay)
         # Ensure we point to the worktree data / config
         orig_cwd = os.getcwd()
         try:
@@ -101,8 +127,7 @@ class Worker:
             # Ensure data_dir is resolved
             config = job.config
             if not config.feather_path and self.worktree_path.exists():
-                # Allow runner to find data in worktree/data
-                config = config.with_overrides({})
+                # Allow runner to find data in worktree/data (symlinked to repo)
                 config.data_dir = str(self.worktree_path / "data")
 
             runner = BacktestRunner(config)
@@ -150,14 +175,27 @@ class Worker:
                     elif msg_type == "JOB":
                         job_dict = msg.get("job")
                         job = BacktestJob.from_dict(job_dict)
-                        result = self.run_job(job)
+                        # ACK receipt *before* running so the scheduler's ACK
+                        # timer measures delivery, not execution time.
                         sock.send_json(
                             {
-                                "type": "RESULT",
+                                "type": "ACK",
                                 "worker_id": self.worker_id,
                                 "job_id": job.id,
-                                "result": result.to_dict(),
                             }
+                        )
+                        result = self.run_job(job)
+                        # default=str: report records may carry Timestamps
+                        sock.send_string(
+                            json.dumps(
+                                {
+                                    "type": "RESULT",
+                                    "worker_id": self.worker_id,
+                                    "job_id": job.id,
+                                    "result": result.to_dict(),
+                                },
+                                default=str,
+                            )
                         )
                     elif msg_type == "PING":
                         sock.send_json({"type": "PONG", "worker_id": self.worker_id})
