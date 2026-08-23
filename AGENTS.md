@@ -58,6 +58,10 @@ uv run python3 -m sbt --config config.toml --strategy key_breakout --train-val-s
 - `--type funding` ignores `--interval` (no interval param).
 - No tests, linting, typechecking, or CI exist. No verification step to run.
 
+## Agents
+
+- **@paper-quant** (`.opencode/agent/paper-quant.md`) — autonomous agent: finds a quant research paper online, downloads the PDF into `papers/` (Sci-Hub fallback for paywalls), implements it as a new strategy following the conventions below, backtests it and reports honestly. Invoke via `@paper-quant <topic/request>`.
+
 ## Key Conventions
 
 - **Times UTC** throughout; bars at UTC hour boundaries.
