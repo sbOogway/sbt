@@ -5,8 +5,8 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 
-from ..plugins import SBTStrategyConfig
-from .base import SBTStrategy
+from ...plugins import SBTStrategyConfig
+from ..base import SBTStrategy
 
 
 class BitcoinIntradayMomentumConfig(SBTStrategyConfig, kw_only=True, frozen=True):

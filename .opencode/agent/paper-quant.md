@@ -38,10 +38,10 @@ Before any code, state concisely: universe, signal formula (exact math), rebalan
 
 Study `sbt/strategies/key_breakout.py`, `sbt/strategies/base.py` (`SBTStrategy`) and `sbt/plugins/base.py` (`SBTStrategyConfig`, `PluginHost`) first, then mimic their structure and style.
 
-1. New file `sbt/strategies/<snake_name>.py` containing:
-   - `<Name>Config(SBTStrategyConfig, kw_only=True, frozen=True)` imported from `..plugins`, with required fields `instrument_id: InstrumentId` and `bar_type: BarType`, optional `plugins: tuple[str, ...] = (...)` opt-in (e.g. `("vol_scaling",)`) plus paper parameters with sensible defaults. `kw_only=True` is REQUIRED — msgspec does not inherit it, and overriding an inherited field without it breaks struct construction.
-   - `<Name>(SBTStrategy)` class from `.base`: in `__init__` call `super().__init__(config)` then `self.plugins = PluginHost.from_config(config)`; implement `on_trading_bar(self, bar)` for all logic and forward lifecycle events via `self.plugins.on_bar(self, bar)`; size positions compounding: `self.equity() * risk_fraction * config.leverage * self.plugins.size_multiplier()`.
-2. Register in `_STRATEGY_REGISTRY` dict at the top of `sbt/utils.py`: add `"snake_name": ("strategies.snake_name", "Name", "NameConfig"),`.
+1. New file `sbt/strategies/ohlc/<snake_name>.py` (bar-driven) or `sbt/strategies/l2/<snake_name>.py` (order-book-driven) containing:
+   - `<Name>Config(SBTStrategyConfig, kw_only=True, frozen=True)` imported from `...plugins`, with required fields `instrument_id: InstrumentId` and `bar_type: BarType`, optional `plugins: tuple[str, ...] = (...)` opt-in (e.g. `("vol_scaling",)`) plus paper parameters with sensible defaults. `kw_only=True` is REQUIRED — msgspec does not inherit it, and overriding an inherited field without it breaks struct construction.
+   - `<Name>(SBTStrategy)` class from `..base`: in `__init__` call `super().__init__(config)` then `self.plugins = PluginHost.from_config(config)`; implement `on_trading_bar(self, bar)` for all logic and forward lifecycle events via `self.plugins.on_bar(self, bar)`; size positions compounding: `self.equity() * risk_fraction * config.leverage * self.plugins.size_multiplier()`.
+2. Register in `_STRATEGY_REGISTRY` dict at the top of `sbt/utils.py`: add `"snake_name": ("strategies.<folder>.snake_name", "Name", "NameConfig"),`.
 3. Do NOT touch `config.toml`. Strategy parameters live ONLY as fields/defaults on the Config class — the `[strategy.*]` TOML sections were removed; per-run overrides happen exclusively through the optimizer (`--param`) or server (`with_overrides`).
 
 Plugins: if you enable one, its params are read flat off your Config via `getattr` defaults (see `VolScalingPlugin` in `sbt/plugins/vol_scaling.py`). New plugin → new file + register in `sbt/plugins/__init__.py::_PLUGIN_REGISTRY`; only do this if the paper genuinely needs it.

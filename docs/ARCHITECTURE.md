@@ -56,7 +56,7 @@ code path per data mode (`bar`, `l2`) inside `_run_window`.
 | `sbt/plugins/train_val_split.py` | Runner-level IS/OOS holdout | `TrainValSplit`, `IN_SAMPLE`, `OUT_OF_SAMPLE` |
 | `sbt/plugins/__init__.py` | Plugin registries | `_PLUGIN_REGISTRY`, `_RUNNER_PLUGIN_REGISTRY`, `get_plugin_class`, `get_runner_plugin_class` |
 | `sbt/strategies/base.py` | Shared strategy plumbing | `SBTStrategy`, `FundingTracker` |
-| `sbt/strategies/*.py` | Concrete strategies (see §6) | registry names |
+| `sbt/strategies/ohlc/*.py`, `sbt/strategies/l2/*.py` | Concrete strategies (see §5) | registry names |
 | `sbt/data.py` | ccxt → feather downloader | `fetch_ohlcv`, `fetch_funding_rates`, `_paginate`, `main` |
 | `sbt/report.py` | HTML tearsheet + TV chart | `print_report` |
 | `sbt/server/scheduler.py` | ZMQ ROUTER scheduler/dispatcher | `Scheduler` |
@@ -198,10 +198,13 @@ Funding does NOT flow through engine PnL — it is metadata reported as
 `BacktestResult.funding_pnl`.
 
 Registry: `utils._STRATEGY_REGISTRY`, name → (module, strategy class,
-config class). Strategies: `bitcoin_intraday_momentum`, `glucksmann`,
-`key_breakout`, `orb`, `overnight_drift` (all SBTStrategy subclasses), plus
-`l2_order_imbalance`, which stays a plain nautilus `Strategy` (order-book
-driven, no bar stream) though its config still inherits `SBTStrategyConfig`.
+config class). Bar-driven strategies live in `strategies/ohlc/`:
+`bitcoin_intraday_momentum`, `glucksmann`,
+`key_breakout`, `orb`, `overnight_drift` (all SBTStrategy subclasses).
+Order-book strategies live in `strategies/l2/`: `l2_order_imbalance`
+(module `strategies.l2.order_imbalance`) stays a plain nautilus
+`Strategy` (no bar stream) though its config still inherits
+`SBTStrategyConfig`.
 
 ### msgspec gotcha (breaks construction)
 

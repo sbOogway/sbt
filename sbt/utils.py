@@ -8,33 +8,35 @@ from nautilus_trader.model.instruments import CryptoPerpetual
 from nautilus_trader.model.objects import Money, Price, Quantity
 
 _STRATEGY_REGISTRY = {
+    # OHLC / bar-driven strategies (sbt/strategies/ohlc/)
     "bitcoin_intraday_momentum": (
-        "strategies.bitcoin_intraday_momentum",
+        "strategies.ohlc.bitcoin_intraday_momentum",
         "BitcoinIntradayMomentum",
         "BitcoinIntradayMomentumConfig",
     ),
     "glucksmann": (
-        "strategies.glucksmann",
+        "strategies.ohlc.glucksmann",
         "GlucksmannStrategy",
         "GlucksmannConfig",
     ),
     "key_breakout": (
-        "strategies.key_breakout",
+        "strategies.ohlc.key_breakout",
         "KeyBreakout",
         "KeyBreakoutConfig",
     ),
     "orb": (
-        "strategies.orb",
+        "strategies.ohlc.orb",
         "ORBStrategy",
         "ORBConfig",
     ),
     "overnight_drift": (
-        "strategies.overnight_drift",
+        "strategies.ohlc.overnight_drift",
         "OvernightDrift",
         "OvernightDriftConfig",
     ),
+    # L2 order book strategies (sbt/strategies/l2/)
     "l2_order_imbalance": (
-        "strategies.l2_order_imbalance",
+        "strategies.l2.order_imbalance",
         "L2OrderImbalance",
         "L2OrderImbalanceConfig",
     ),

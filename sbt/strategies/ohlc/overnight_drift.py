@@ -5,8 +5,8 @@ from nautilus_trader.model.data import BarType, FundingRateUpdate
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 
-from ..plugins import SBTStrategyConfig
-from .base import SBTStrategy
+from ...plugins import SBTStrategyConfig
+from ..base import SBTStrategy
 
 
 class OvernightDriftConfig(SBTStrategyConfig, kw_only=True, frozen=True):

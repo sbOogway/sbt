@@ -7,8 +7,8 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 
-from ..plugins import SBTStrategyConfig
-from .base import SBTStrategy
+from ...plugins import SBTStrategyConfig
+from ..base import SBTStrategy
 
 
 class ORBConfig(SBTStrategyConfig, kw_only=True, frozen=True):

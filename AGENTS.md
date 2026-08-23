@@ -90,8 +90,8 @@ Adding a strategy-level plugin:
 
 ## Adding a Strategy
 
-1. Create `sbt/strategies/<name>.py` with `<Name>Config(SBTStrategyConfig, kw_only=True, frozen=True)` and `<Name>(SBTStrategy)`. All tunable parameters and their defaults live in `<Name>Config`. Set `plugins` defaults there (e.g. `plugins: tuple[str, ...] = ("vol_scaling",)`), instantiate `self.plugins = PluginHost.from_config(config)`, forward `self.plugins.on_bar(self, bar)` from `on_trading_bar`, and size via `self.equity() * ... * self.plugins.size_multiplier()`. Note: `kw_only=True` is required — msgspec does not inherit it, and overriding an inherited field without it breaks struct construction.
-2. Register in `sbt/utils.py` `_STRATEGY_REGISTRY`.
+1. Create `sbt/strategies/ohlc/<name>.py` (bar-driven) or `sbt/strategies/l2/<name>.py` (order-book-driven) with `<Name>Config(SBTStrategyConfig, kw_only=True, frozen=True)` and `<Name>(SBTStrategy)` (or plain `Strategy` for L2). All tunable parameters and their defaults live in `<Name>Config`. Set `plugins` defaults there (e.g. `plugins: tuple[str, ...] = ("vol_scaling",)`), instantiate `self.plugins = PluginHost.from_config(config)`, forward `self.plugins.on_bar(self, bar)` from `on_trading_bar`, and size via `self.equity() * ... * self.plugins.size_multiplier()`. Note: `kw_only=True` is required — msgspec does not inherit it, and overriding an inherited field without it breaks struct construction.
+2. Register in `sbt/utils.py` `_STRATEGY_REGISTRY` with the module path under the strategy's folder.
 3. Run: `uv run python3 -m sbt --strategy <name>` or submit via `sbt.client`.
 
 Strategy parameters are **not** configured via `config.toml` — the `[strategy.*]` sections were removed; the strategy file is the single source of truth. Per-run overrides only happen through the optimizer (`--param`) / server (`with_overrides`).
@@ -129,12 +129,15 @@ sbt/
 ├── compare/                Multi-strategy comparison dashboard
 │   └── dashboard.py        Side-by-side metric tables + comparison charts
 └── strategies/
-    ├── overnight_drift.py
-    ├── bitcoin_intraday_momentum.py
-    ├── glucksmann.py
-    ├── key_breakout.py
-    ├── l2_order_imbalance.py
-    └── orb.py
+    ├── base.py               SBTStrategy base class + FundingTracker
+    ├── ohlc/                 Bar-driven strategies (SBTStrategy subclasses)
+    │   ├── overnight_drift.py
+    │   ├── bitcoin_intraday_momentum.py
+    │   ├── glucksmann.py
+    │   ├── key_breakout.py
+    │   └── orb.py
+    └── l2/                   Order-book-driven strategies (plain Strategy)
+        └── order_imbalance.py  (registry name: l2_order_imbalance)
 papers/                     Reference PDFs (not code)
 data/                       .feather files (gitignored)
 reports/                    Generated HTML tearsheets (gitignored)
