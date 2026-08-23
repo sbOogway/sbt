@@ -36,15 +36,17 @@ Before any code, state concisely: universe, signal formula (exact math), rebalan
 
 ## 4. Implement — repo conventions (follow EXACTLY)
 
-Study `sbt/strategies/orb.py` and `sbt/strategies/overnight_drift.py` first and mimic their structure and style.
+Study `sbt/strategies/key_breakout.py`, `sbt/strategies/base.py` (`SBTStrategy`) and `sbt/plugins/base.py` (`SBTStrategyConfig`, `PluginHost`) first, then mimic their structure and style.
 
 1. New file `sbt/strategies/<snake_name>.py` containing:
-   - `<Name>Config(StrategyConfig, frozen=True)` with required fields `instrument_id: InstrumentId`, `bar_type: BarType`, `capital: Decimal`, `leverage: float`, optional `backtest_start_date: str`, plus paper parameters with sensible defaults.
-   - `<Name>(Strategy)` class: subscribe the bar stream in `on_start`, compute the signal in `on_bar`, size positions off equity (`capital * leverage * risk fraction`) unless the paper dictates otherwise.
-2. Register in the `if/elif` chain of `get_strategy_class()` in `sbt/utils.py` (lazy import inside the branch).
-3. Add a `[strategy.<snake_name>]` section to `config.toml` with the paper's parameters (these become ConfigClass kwargs).
+   - `<Name>Config(SBTStrategyConfig, kw_only=True, frozen=True)` imported from `..plugins`, with required fields `instrument_id: InstrumentId` and `bar_type: BarType`, optional `plugins: tuple[str, ...] = (...)` opt-in (e.g. `("vol_scaling",)`) plus paper parameters with sensible defaults. `kw_only=True` is REQUIRED — msgspec does not inherit it, and overriding an inherited field without it breaks struct construction.
+   - `<Name>(SBTStrategy)` class from `.base`: in `__init__` call `super().__init__(config)` then `self.plugins = PluginHost.from_config(config)`; implement `on_trading_bar(self, bar)` for all logic and forward lifecycle events via `self.plugins.on_bar(self, bar)`; size positions compounding: `self.equity() * risk_fraction * config.leverage * self.plugins.size_multiplier()`.
+2. Register in `_STRATEGY_REGISTRY` dict at the top of `sbt/utils.py`: add `"snake_name": ("strategies.snake_name", "Name", "NameConfig"),`.
+3. Do NOT touch `config.toml`. Strategy parameters live ONLY as fields/defaults on the Config class — the `[strategy.*]` TOML sections were removed; per-run overrides happen exclusively through the optimizer (`--param`) or server (`with_overrides`).
 
-Do NOT modify other existing strategies or any core module (`__main__.py`, `data.py`, `report.py`, `stats.py`, `utils.py` beyond the one registration branch).
+Plugins: if you enable one, its params are read flat off your Config via `getattr` defaults (see `VolScalingPlugin` in `sbt/plugins/vol_scaling.py`). New plugin → new file + register in `sbt/plugins/__init__.py::_PLUGIN_REGISTRY`; only do this if the paper genuinely needs it.
+
+Do NOT modify other existing strategies or any core module (`__main__.py`, `core/*`, `data.py`, `report.py`, `stats.py`, `utils.py` beyond the one registry entry).
 
 ## 5. Market data
 
@@ -56,11 +58,10 @@ Do NOT modify other existing strategies or any core module (`__main__.py`, `data
 ## 6. Backtest and fix until clean
 
 ```
-uv run python3 -m sbt --config config.toml --strategy <snake_name>
+uv run python3 -m sbt --config config.toml --strategy <snake_name> --no-open
 ```
 
-- Override venue/symbol/window on the CLI as needed (`--exchange --symbol --start`).
-- The tearsheet auto-opens a browser tab and lands in `reports/`; that is expected.
+- Override venue/symbol/window on the CLI as needed (`--exchange --symbol --start --end`); `--no-open` skips the browser tab (tearsheet still lands in `reports/`).
 - Iterate ONLY on bugs (API misuse, wrong dtypes, missing columns, division errors) until the run completes and produces a tearsheet.
 - Parameter mining is FORBIDDEN: do not tweak parameters to make metrics look good. One exception: if the paper leaves key parameters unspecified, you may run ONE Optuna sweep capped at 8 trials via `uv run python3 -m sbt.client optimize ... --local` — and must disclose doing so in the report.
 - No tests/lint/typecheck exist in this repo; a clean full backtest IS the verification.
