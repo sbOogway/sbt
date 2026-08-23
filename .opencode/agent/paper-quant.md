@@ -18,7 +18,10 @@ Turn one academic paper into a working, backtested strategy per invocation. You 
 - REJECT papers that need options chains, order-book/tick history, alternative datasets you cannot fetch, or heavy ML training pipelines.
 - If the request names a topic, honor it; otherwise pick whatever looks most promising and robustly documented (clear formula beats vague narrative).
 
-## 2. Download the PDF into `papers/<descriptive_name>.pdf`
+## 2. Download the PDF into `papers/<ohlc|l2|plugins>/<descriptive_name>.pdf`
+
+Pick the subfolder matching the strategy kind (bar-driven → `ohlc/`,
+order-book/microstructure → `l2/`, plugin methodology → `plugins/`).
 
 Escalating fallbacks, in order:
 

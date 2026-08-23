@@ -138,7 +138,10 @@ sbt/
     │   └── orb.py
     └── l2/                   Order-book-driven strategies (plain Strategy)
         └── order_imbalance.py  (registry name: l2_order_imbalance)
-papers/                     Reference PDFs (not code)
+papers/                     Reference PDFs organized by strategy kind (not code)
+├── ohlc/                   Papers behind bar-driven strategies
+├── l2/                     Order-book / microstructure papers
+└── plugins/                Papers behind plugins (e.g. vol scaling)
 data/                       .feather files (gitignored)
 reports/                    Generated HTML tearsheets (gitignored)
 .worktrees/                 Worker isolated checkouts (gitignored)
