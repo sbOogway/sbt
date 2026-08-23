@@ -1,8 +1,24 @@
-"""Layer 2 Order Book Imbalance & Microstructure Strategy."""
+"""Layer 2 Order Book Imbalance & Microstructure Strategy.
 
+Signals follow the order-flow imbalance literature:
+- Cont, Kukanov & Stoikov (2014): best-quote order flow imbalance (OFI),
+  per-event contributions accumulated with exponential decay and normalized
+  by average best-quote depth (linear impact: dP ~ OFI / (2D)).
+- Xu et al. (2019): multi-level OFI -- net flow at deeper levels adds
+  predictive power; implemented as exponentially weighted rank-matched
+  level-volume changes between sampling snapshots (simplification of their
+  ridge-regression combination).
+- Gould & Bonart (2016): static queue imbalance predicts the direction of
+  the next mid-price move.
+- Bieganowski & Slepaczuk (2026): signed trade flow carries crypto perpetual
+  microstructure information; spread acts as a liquidity gate.
+"""
+
+import math
 from decimal import Decimal
+
 from nautilus_trader.model.data import OrderBookDelta, OrderBookDeltas, TradeTick
-from nautilus_trader.model.enums import BookAction, BookType, OrderSide
+from nautilus_trader.model.enums import AggressorSide, BookAction, BookType, OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
@@ -17,22 +33,45 @@ class L2OrderImbalanceConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     leverage: float = 1.0
     backtest_start_date: str = "2020-01-01"
 
-    imbalance_threshold: float = 0.6  # Imbalance threshold: (bid - ask) / (bid + ask)
+    # Composite entry threshold applied to the blended signal z.
+    imbalance_threshold: float = 0.6
+    # Legacy event-count sampling, used only when signal_interval_ms <= 0.
     cooldown_events: int = 50
     # Fraction of current account equity (times leverage) traded as notional
-    # per entry, e.g. 0.02 -> $20 notional on a $1000 account at 1x.
-    capital_fraction: float = 0.02
-    # Hysteresis exit: flatten when |imbalance| decays below this (0 disables;
+    # per entry, e.g. 0.10 -> $100 notional on a $1000 account at 1x.
+    # Must exceed one size lot (0.001 BTC) times price to be tradable.
+    capital_fraction: float = 0.10
+    # Hysteresis exit: flatten when |z| decays below this (0 disables;
     # legacy behavior flips only on a full opposite entry signal).
     exit_threshold: float = 0.0
     # Force-flat time stop in seconds (0 disables).
     max_hold_seconds: int = 0
-    # Depth (price levels per side) used for the imbalance measurement.
+    # Depth (price levels per side) used for the static imbalance measurement.
     top_levels: int = 5
+
+    # Minimum event-time span between signal evaluations (ms);
+    # <= 0 falls back to legacy cooldown_events counting.
+    signal_interval_ms: int = 500
+    # Best-quote OFI: EWMA half-life (ms) shared by flow and depth normalizer.
+    ofi_half_life_ms: int = 2000
+    # Multi-level OFI: levels tracked and exponential decay weight per deeper
+    # level (w_j = ofi_level_decay ** (j - 1)).
+    ofi_levels: int = 5
+    ofi_level_decay: float = 0.5
+    ml_ofi_half_life_ms: int = 5000
+    # Signed trade-flow EWMA half-life (ms).
+    trade_half_life_ms: int = 10000
+    # Component weights of the composite signal (normalized internally).
+    depth_weight: float = 0.3
+    ofi_weight: float = 0.5
+    ml_ofi_weight: float = 0.2
+    trade_flow_weight: float = 0.2
+    # Skip NEW entries while top-of-book spread exceeds this (bps; 0 disables).
+    max_spread_bps: float = 5.0
 
 
 class L2OrderImbalance(Strategy):
-    """Exploits short-term microstructural order book depth imbalance."""
+    """Exploits short-term microstructural order book depth and flow imbalance."""
 
     def __init__(self, config: L2OrderImbalanceConfig) -> None:
         super().__init__(config)
@@ -43,6 +82,41 @@ class L2OrderImbalance(Strategy):
         self._last_side: OrderSide | None = None
         self._entry_ts: int | None = None
 
+        self._best_bid: tuple[float, float] | None = None
+        self._best_ask: tuple[float, float] | None = None
+        self._last_sample_ts: int | None = None
+
+        # Window accumulators (raw sums since the previous signal evaluation)
+        # are smoothed into these EWMAs on the sampling grid.
+        self._ofi_ewma: float = 0.0
+        self._ofi_depth_ewma: float = 0.0
+        self._ofi_window: float = 0.0
+        self._ofi_depth_sum: float = 0.0
+        self._ofi_depth_n: int = 0
+        self._ml_ewma: float = 0.0
+        self._ml_last_ts: int | None = None
+        self._ml_window: float | None = None
+        self._prev_top_bids: list[float] = []
+        self._prev_top_asks: list[float] = []
+        self._tf_signed_ewma: float = 0.0
+        self._tf_abs_ewma: float = 0.0
+        self._tf_signed_window: float = 0.0
+        self._tf_abs_window: float = 0.0
+
+        weights = (
+            config.depth_weight,
+            config.ofi_weight,
+            config.ml_ofi_weight,
+            config.trade_flow_weight,
+        )
+        self._weight_sum = sum(w for w in weights if w and w > 0)
+        self._use_flow = self._weight_sum > 0
+        self._interval_ns = (
+            config.signal_interval_ms * 1_000_000
+            if config.signal_interval_ms > 0
+            else 0
+        )
+
     def on_start(self) -> None:
         self.subscribe_order_book_deltas(
             self.instrument_id,
@@ -51,7 +125,7 @@ class L2OrderImbalance(Strategy):
         self.subscribe_trade_ticks(self.instrument_id)
 
     def on_order_book_deltas(self, deltas: OrderBookDeltas) -> None:
-        """Maintain top of book depth from order book deltas."""
+        """Maintain top of book depth and flow accumulators from deltas."""
         for delta in deltas.deltas:
             self._process_delta(delta)
 
@@ -63,8 +137,9 @@ class L2OrderImbalance(Strategy):
         size = float(delta.order.size)
         side = delta.order.side
         action = delta.action
+        is_bid = side == OrderSide.BUY
 
-        book = self._bids if side == OrderSide.BUY else self._asks
+        book = self._bids if is_bid else self._asks
 
         if action == BookAction.ADD or action == BookAction.UPDATE:
             book[price] = size
@@ -73,34 +148,200 @@ class L2OrderImbalance(Strategy):
         elif action == BookAction.CLEAR:
             book.clear()
 
+        ts_event = int(delta.ts_event)
+        if self._use_flow:
+            self._update_best(is_bid, price, action, ts_event)
+
         self._events_since_trade += 1
-        if self._events_since_trade >= self.config.cooldown_events:
-            self._check_signal(int(delta.ts_event))
+        if self._interval_ns > 0:
+            if (
+                self._last_sample_ts is None
+                or ts_event - self._last_sample_ts >= self._interval_ns
+            ):
+                self._check_signal(ts_event)
+        elif self._events_since_trade >= self.config.cooldown_events:
+            self._check_signal(ts_event)
+
+    def _update_best(
+        self, is_bid: bool, price: float, action: BookAction, ts_event: int
+    ) -> None:
+        """Track the best quote and accumulate its event flow (CKS)."""
+        book = self._bids if is_bid else self._asks
+        prev = self._best_bid if is_bid else self._best_ask
+
+        def rescan() -> tuple[float, float] | None:
+            if not book:
+                return None
+            px = max(book) if is_bid else min(book)
+            return (px, book[px])
+
+        new_best: tuple[float, float] | None
+        if action == BookAction.CLEAR:
+            new_best = rescan()
+        elif action == BookAction.DELETE:
+            new_best = rescan() if prev is None or price == prev[0] else prev
+        elif (
+            prev is None
+            or price == prev[0]
+            or (is_bid and price > prev[0])
+            or (not is_bid and price < prev[0])
+        ):
+            new_best = (price, book[price])
+        else:
+            new_best = prev
+
+        if new_best is not None:
+            if is_bid:
+                self._best_bid = new_best
+            else:
+                self._best_ask = new_best
+
+        bb = self._best_bid
+        ba = self._best_ask
+        if bb is not None and ba is not None:
+            self._ofi_depth_sum += bb[1] + ba[1]
+            self._ofi_depth_n += 1
+
+        if prev is None or new_best is None or new_best == prev:
+            return
+
+        p_prev, q_prev = prev
+        p_new, q_new = new_best
+        if is_bid:
+            if p_new > p_prev:
+                e = q_new
+            elif p_new < p_prev:
+                e = -q_prev
+            else:
+                e = q_new - q_prev
+        else:
+            if p_new < p_prev:
+                e = -q_new
+            elif p_new > p_prev:
+                e = q_prev
+            else:
+                e = q_prev - q_new
+
+        self._ofi_window += e
 
     def on_trade_tick(self, tick: TradeTick) -> None:
-        """Process real-time matched trade prints."""
-        pass
+        """Accumulate matched trade prints as signed flow."""
+        if not self._use_flow:
+            return
+        aggressor = tick.aggressor_side
+        if aggressor == AggressorSide.NO_AGGRESSOR:
+            return
+        signed = float(tick.size) * (1.0 if aggressor == AggressorSide.BUYER else -1.0)
+        self._tf_signed_window += signed
+        self._tf_abs_window += abs(signed)
+
+    @staticmethod
+    def _dt_s(ts_event: int, last_ts: int | None) -> float:
+        if last_ts is None:
+            return 0.0
+        return min(max((ts_event - last_ts) / 1e9, 0.0), 60.0)
+
+    @staticmethod
+    def _alpha(dt_s: float, half_life_s: float) -> float:
+        if half_life_s <= 0.0:
+            return 1.0
+        if dt_s <= 0.0:
+            return 1.0
+        return 1.0 - math.exp(-math.log(2.0) * dt_s / half_life_s)
+
+    def _top_sizes(self, book: dict[float, float], n: int, is_bid: bool) -> list[float]:
+        if is_bid:
+            return sorted(book.values(), reverse=True)[:n]
+        return sorted(book.values())[:n]
 
     def _imbalance(self) -> float | None:
-        n = self.config.top_levels
-        top_bids = sorted(self._bids.items(), key=lambda x: x[0], reverse=True)[:n]
-        top_asks = sorted(self._asks.items(), key=lambda x: x[0])[:n]
-
-        bid_vol = sum(v for _, v in top_bids)
-        ask_vol = sum(v for _, v in top_asks)
-
+        bid_vol = sum(self._top_sizes(self._bids, self.config.top_levels, True))
+        ask_vol = sum(self._top_sizes(self._asks, self.config.top_levels, False))
         total_vol = bid_vol + ask_vol
         if total_vol <= 0:
             return None
         return (bid_vol - ask_vol) / total_vol
 
+    def _multi_level_flow(
+        self, ts_event: int, top_bids: list[float], top_asks: list[float]
+    ) -> float:
+        """Rank-matched level-volume changes, EWMA-smoothed across samples."""
+        decay = self.config.ofi_level_decay
+        raw = 0.0
+        denom = 0.0
+        for j in range(max(len(top_bids), len(top_asks))):
+            w = decay**j
+            b = top_bids[j] if j < len(top_bids) else 0.0
+            a = top_asks[j] if j < len(top_asks) else 0.0
+            pb = self._prev_top_bids[j] if j < len(self._prev_top_bids) else b
+            pa = self._prev_top_asks[j] if j < len(self._prev_top_asks) else a
+            raw += w * ((b - pb) - (a - pa))
+            denom += w * (b + a)
+        if self._ml_window is not None:
+            dt_s = self._dt_s(ts_event, self._ml_last_ts)
+            alpha = self._alpha(dt_s, self.config.ml_ofi_half_life_ms / 1000.0)
+            self._ml_ewma += alpha * (self._ml_window - self._ml_ewma)
+        self._ml_window = raw
+        self._ml_last_ts = ts_event
+        self._prev_top_bids = top_bids
+        self._prev_top_asks = top_asks
+        return self._ml_ewma / denom if denom > 0 else 0.0
+
+    def _composite_signal(self, ts_event: int) -> float | None:
+        """Blend depth imbalance, best-quote OFI, multi-level OFI, trade flow."""
+        cfg = self.config
+        depth_imb = self._imbalance()
+        if depth_imb is None:
+            return None
+        z = cfg.depth_weight * depth_imb
+
+        if cfg.ofi_weight > 0:
+            window_ofi = self._ofi_window
+            window_depth = (
+                self._ofi_depth_sum / self._ofi_depth_n
+                if self._ofi_depth_n > 0
+                else 0.0
+            )
+            dt_s = self._dt_s(ts_event, self._last_sample_ts)
+            a_ofi = self._alpha(dt_s, cfg.ofi_half_life_ms / 1000.0)
+            self._ofi_ewma += a_ofi * (window_ofi - self._ofi_ewma)
+            if window_depth > 0:
+                self._ofi_depth_ewma += a_ofi * (window_depth - self._ofi_depth_ewma)
+            self._ofi_window = 0.0
+            self._ofi_depth_sum = 0.0
+            self._ofi_depth_n = 0
+            if self._ofi_depth_ewma > 0:
+                z += cfg.ofi_weight * (self._ofi_ewma / self._ofi_depth_ewma)
+
+        m = max(1, min(cfg.ofi_levels, 25))
+        top_bids = self._top_sizes(self._bids, m, True)
+        top_asks = self._top_sizes(self._asks, m, False)
+        if cfg.ml_ofi_weight > 0:
+            z += cfg.ml_ofi_weight * self._multi_level_flow(ts_event, top_bids, top_asks)
+
+        if cfg.trade_flow_weight > 0:
+            dt_s = self._dt_s(ts_event, self._last_sample_ts)
+            a_tf = self._alpha(dt_s, cfg.trade_half_life_ms / 1000.0)
+            self._tf_signed_ewma += a_tf * (self._tf_signed_window - self._tf_signed_ewma)
+            self._tf_abs_ewma += a_tf * (self._tf_abs_window - self._tf_abs_ewma)
+            self._tf_signed_window = 0.0
+            self._tf_abs_window = 0.0
+            if self._tf_abs_ewma > 0:
+                z += cfg.trade_flow_weight * (self._tf_signed_ewma / self._tf_abs_ewma)
+
+        return z / self._weight_sum
+
     def _check_signal(self, ts_event: int) -> None:
         if not self._bids or not self._asks:
             return
 
-        imbalance = self._imbalance()
-        if imbalance is None:
+        if self._use_flow:
+            signal = self._composite_signal(ts_event)
+        else:
+            signal = self._imbalance()
+        if signal is None:
             return
+        self._last_sample_ts = ts_event
 
         # Time stop
         if (
@@ -113,27 +354,48 @@ class L2OrderImbalance(Strategy):
 
         # Hysteresis exit: decay against the position beyond exit_threshold.
         if self.config.exit_threshold > 0.0:
-            if self._last_side == OrderSide.BUY and imbalance < self.config.exit_threshold:
+            if self._last_side == OrderSide.BUY and signal < self.config.exit_threshold:
                 self._flatten()
                 return
-            if self._last_side == OrderSide.SELL and imbalance > -self.config.exit_threshold:
+            if self._last_side == OrderSide.SELL and signal > -self.config.exit_threshold:
                 self._flatten()
                 return
 
-        # Strong bid volume dominance -> Long
-        if imbalance > self.config.imbalance_threshold:
+        # Spread gate: block fresh entries while crossing the book is costly.
+        if self._last_side is None and self.config.max_spread_bps > 0.0:
+            spread = self._spread_bps()
+            if spread is not None and spread > self.config.max_spread_bps:
+                return
+
+        # Strong net demand dominance -> Long
+        if signal > self.config.imbalance_threshold:
             if self._last_side != OrderSide.BUY:
                 self._submit_market(OrderSide.BUY)
                 self._last_side = OrderSide.BUY
                 self._entry_ts = ts_event
-                self._events_since_trade = 0
-        # Strong ask volume dominance -> Short
-        elif imbalance < -self.config.imbalance_threshold:
+        # Strong net supply dominance -> Short
+        elif signal < -self.config.imbalance_threshold:
             if self._last_side != OrderSide.SELL:
                 self._submit_market(OrderSide.SELL)
                 self._last_side = OrderSide.SELL
                 self._entry_ts = ts_event
-                self._events_since_trade = 0
+
+    def _spread_bps(self) -> float | None:
+        bb = self._best_bid
+        ba = self._best_ask
+        if bb is None or ba is None:
+            mid_from_book = self._mid_price()
+            if mid_from_book is None:
+                return None
+            bid_px = max(self._bids)
+            ask_px = min(self._asks)
+            mid = mid_from_book
+        else:
+            bid_px, ask_px = bb[0], ba[0]
+            mid = (bid_px + ask_px) / 2.0
+        if mid <= 0:
+            return None
+        return (ask_px - bid_px) / mid * 10000.0
 
     def _flatten(self) -> None:
         open_positions = self.cache.positions(
@@ -168,6 +430,8 @@ class L2OrderImbalance(Strategy):
                 * self.config.capital_fraction
             )
             quantity = instrument.make_qty(Decimal(str(notional / ref_price)))
+            if quantity.as_double() <= 0:
+                quantity = instrument.size_increment
 
         if quantity.as_double() <= 0:
             return
