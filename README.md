@@ -129,13 +129,9 @@ taker_fee = 0.00055
 settle_currency = "USDT"
 slippage_ticks = 2
 tick_size = 0.01
-
-[strategy.overnight_drift]
-entry_time = "20:00"
-exit_time = "14:00"
-vol_scaling = true
-rv_lookback = 5
-vol_max_scale = 2
-weekdays_only = true
-funding_enabled = false
 ```
+
+Strategy parameters are **not** configured via `config.toml` — each
+strategy file (`sbt/strategies/...`) is the single source of truth for
+its parameters and defaults. Per-run overrides happen through the
+optimizer (`--param`) or the server (`with_overrides`).

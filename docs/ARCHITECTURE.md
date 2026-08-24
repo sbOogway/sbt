@@ -198,31 +198,35 @@ through `submit_market(side, qty)`, which is a no-op during warm-up.
 accrual for the closing position.
 
 Sizing: `equity()` reads the live account total balance each time →
-compounding by construction. Canonical formula used by strategies:
-`notional = equity() * risk_percent * leverage * vol_multiplier()` where
-`vol_multiplier()` = product of sizing-plugin multipliers; quantity =
-`sized_quantity(notional / price)` (rounds to 3dp, None when <= 0).
-Stop-based strategies use the shared `risk_quantity(stop_distance,
+compounding by construction. The canonical formula is owned once by
+`SBTStrategy.open_position(side, price)`:
+`notional = equity() * config.risk_percent * leverage
+* plugins.size_multiplier()`; quantity = `sized_quantity(notional /
+price)` (rounds to 3dp, None when <= 0). Full-notional strategies call
+`open_position`; `risk_percent` lives on the shared `SBTStrategyConfig`
+tier. Stop-based strategies use the shared `risk_quantity(stop_distance,
 risk_fraction)`: risk amount = equity × leverage × risk_fraction ×
 plugin multiplier, quantity = amount / stop_distance.
 
 `FundingTracker`: signed from holder's perspective — a long paying a
 positive rate accrues cost; `total_paid > 0` means the strategy paid.
 The base class implements `on_funding_rate(FundingRateUpdate)` (accrues
-against the open position at `_latest_price`); strategies opt in by
-calling `subscribe_funding_rates(self.instrument_id)` in `on_start`.
-Funding does NOT flow through engine PnL — it is metadata reported as
-`BacktestResult.funding_pnl`.
+against the open position at `_latest_price`); strategies opt in via
+`subscribe_funding: bool = True` on their config (the base subscribes in
+`on_start`). Funding does NOT flow through engine PnL — it is metadata
+reported as `BacktestResult.funding_pnl`.
 
 Registry: `utils._STRATEGY_REGISTRY`, name → (module, strategy class,
 config class). Bar-driven strategies live in `strategies/ohlc/`:
 `bitcoin_intraday_momentum`, `glucksmann`,
 `key_breakout`, `orb`, `overnight_drift`, plus the reversal/seasonality
 pair (all SBTStrategy subclasses). Order-book strategies live in
-`strategies/l2/`: `l2_order_imbalance`
-(module `strategies.l2.order_imbalance`) stays a plain nautilus
-`Strategy` (no bar stream) though its config still inherits
-`SBTStrategyConfig`.
+`strategies/l2/`, all subclasses of `L2EventStrategy` (`strategies/l2/
+base.py`: maintains the L2 book from deltas, samples signals on a time
+grid via `_sample_due`, executes entries/exits with equity-fraction
+sizing; shared EWMA helpers `clamped_dt_s`/`ewma_alpha`) — including
+`l2_order_imbalance`, whose blended composite signal is pure subclass
+code on that base.
 
 ### Config hierarchy & runner-injected fields
 
@@ -362,20 +366,27 @@ symlink.
 SQLite `sbt.db` via `ResultStore`; same file doubles as Optuna storage
 (`sqlite:///...`). WAL journal + busy_timeout=5000 for concurrent readers.
 Versioned idempotent migrations driven by `schema_meta.version`
-(`_SCHEMA_VERSION = 2`).
+(`_SCHEMA_VERSION = 3`).
 
 Tables:
 
 - `jobs(id PK, status, strategy_name, config_json, worker_id, study_name,
   submitted_at, timeout_seconds, attempts)`
-- `results(job_id PK→jobs.id, status, sharpe_ratio, num_trades, pnl, sqn,
-  stats_json, equity_curve_json [legacy, NOT written], positions_json,
-  fills_json, tearsheet_path, error, duration_seconds, funding_pnl,
-  positions_path, fills_path, positions_count, fills_count)`
+- `results(...)` — the columns are DERIVED from the `BacktestResult`
+  dataclass (`core.job.result_field_specs`): every scalar field becomes a
+  queryable column of the same name (sharpe_ratio, num_trades, pnl, sqn,
+  error, duration_seconds, funding_pnl, positions_path, fills_path,
+  positions_count, fills_count); every dict/list field persists as
+  `<name>_json` TEXT (stats_json, positions_json, fills_json,
+  splits_json). Adding a metric field extends DDL, migration, insert and
+  row decode automatically — no hand-written mirrors.
 - `schema_meta(key PK, value)`
 
-v1→v2 migration added jobs.timeout_seconds/attempts and results.sqn +
-artifact columns (guarded by PRAGMA table_info, rerun-safe).
+v1→v2 added jobs.timeout_seconds/attempts; v2→v3 derives results columns
+from the dataclass and backfills any missing ones generically (guarded by
+PRAGMA table_info, rerun-safe). Legacy v2 columns with no field
+(`equity_curve_json`, `tearsheet_path`) survive on old databases but are
+never written or read.
 
 Key methods: `save_job` upsert; `update_job_dispatch` (status+worker+
 attempts); `complete_job` writes result + terminal status in ONE
@@ -476,8 +487,10 @@ resolution; unknown exchanges omit the chart. With a train/val split,
 10. **Plugin params stay flat** on strategy configs; plugins declare
     `required_config_fields` and validation raises — do not add nested
     param objects or silent defaults.
-11. **equity_curve_json column is legacy**: not written by v2 code paths;
-    don't read it expecting data.
+11. **Results schema is fields-derived**: `BacktestResult` is the single
+    source of truth (`core.job.result_field_specs`); never hand-write a
+    column list, codec, or migration for it. Legacy v2 columns
+    (`equity_curve_json`) may linger in old DBs — don't read them.
 12. **JSON boundary discipline**: engine outputs must pass
     `_jsonable_records` before ZMQ/DB/JSON serialization.
 13. **Deferred imports exist to break cycles** (§2 import-graph rule).

@@ -69,7 +69,7 @@ uv run python3 -m sbt --config config.toml --strategy key_breakout --train-val-s
 - **Instrument factory**: `make_perpetual()` in `sbt/utils.py` (`price_precision=1`, `size_precision=3`).
 - **Slippage in ticks**: `slippage_ticks * tick_size / ref_price * 10000` bps added to `taker_fee`. Single mechanism only — no `FillModel`.
 - **Funding rates** tracked as metadata side-channel; does not flow through engine PnL.
-- **Strategy base class**: bar-driven strategies subclass `SBTStrategy` (`sbt/strategies/base.py`) — compounding `equity()` sizing, `FundingTracker` (base implements `on_funding_rate`; opt in via `subscribe_funding_rates(self.instrument_id)` in `on_start`), order gating via `active_from` (bars before it still feed indicators/plugins). Subclasses implement `on_trading_bar(bar)`. `l2_order_imbalance` stays a plain `Strategy` (no bar stream).
+- **Strategy base class**: bar-driven strategies subclass `SBTStrategy` (`sbt/strategies/base.py`) — compounding `equity()` sizing via the canonical `open_position(side, price)` (stop-distance strategies use `risk_quantity`), `FundingTracker` (base implements `on_funding_rate`; opt in via `subscribe_funding: bool = True` on the config), order gating via `active_from` (bars before it still feed indicators/plugins). Subclasses implement `on_trading_bar(bar)`. L2 strategies subclass `L2EventStrategy` (`sbt/strategies/l2/base.py` — shared book maintenance, sampling grid, sizing; no bar stream).
 - **Plugin validation**: plugins declare `required_config_fields`; `PluginHost.from_config()` raises listing missing fields instead of silently defaulting.
 - **Plugins**: strategies opt in via the flat `plugins: tuple[str, ...]` field on their config (e.g. `("vol_scaling",)`); plugin params stay flat on the config so optimizer specs keep working. Registry in `sbt/plugins/__init__.py`.
 - **Vol scaling** is a plugin (`VolScalingPlugin`, Moreira & Muir rolling RV). Feeding modes: automatic daily close-to-close tracking (`vol_track_daily=True`) or manual `plugin.add_return()` when sampling follows a specific time/timezone. `vol_rebalance_freq` = `"daily"` (default) or `"monthly"` (weight refresh on month starts).
@@ -91,7 +91,7 @@ Adding a strategy-level plugin:
 
 ## Adding a Strategy
 
-1. Create `sbt/strategies/ohlc/<name>.py` (bar-driven) or `sbt/strategies/l2/<name>.py` (order-book-driven). Bar-driven: `<Name>Config(SBTBarStrategyConfig, kw_only=True, frozen=True)`; L2: `<Name>Config(SBTStrategyConfig, kw_only=True, frozen=True)` — the tiers already carry the runner-injected fields (`instrument_id`, `bar_type` [bar tier only], `capital`, `leverage`, `backtest_start_date`, `active_from`), so declare only signal parameters and their defaults. Strategy class: `<Name>(SBTStrategy)` (or plain `Strategy` for L2). Set `plugins` defaults in the config (e.g. `plugins: tuple[str, ...] = ("vol_scaling",)`), instantiate `self.plugins = PluginHost.from_config(config)`, forward `self.plugins.on_bar(self, bar)` from `on_trading_bar`, and size via `self.equity() * ... * self.plugins.size_multiplier()`. Note: `kw_only=True` is required on every config subclass — msgspec does not inherit it, and overriding an inherited field without it breaks struct construction.
+1. Create `sbt/strategies/ohlc/<name>.py` (bar-driven) or `sbt/strategies/l2/<name>.py` (order-book-driven). Bar-driven: `<Name>Config(SBTBarStrategyConfig, kw_only=True, frozen=True)`; L2: `<Name>Config(SBTStrategyConfig, kw_only=True, frozen=True)` — the tiers already carry the shared fields (`instrument_id`, `bar_type` [bar tier only], `capital`, `leverage`, `backtest_start_date`, `active_from`, `risk_percent`, `subscribe_funding`), so declare only signal parameters and their defaults. Strategy class: `<Name>(SBTStrategy)` for bar mode, `<Name>(L2EventStrategy)` for L2. Set `plugins` defaults in the config (e.g. `plugins: tuple[str, ...] = ("vol_scaling",)`), instantiate `self.plugins = PluginHost.from_config(config)`, forward `self.plugins.on_bar(self, bar)` from `on_trading_bar`, and size via `open_position(side, price)` (stop-distance: `risk_quantity`). Note: `kw_only=True` is required on every config subclass — msgspec does not inherit it, and overriding an inherited field without it breaks struct construction.
 2. Register in `sbt/utils.py` `_STRATEGY_REGISTRY` with the module path under the strategy's folder.
 3. Run: `uv run python3 -m sbt --strategy <name>` or submit via `sbt.client`.
 
@@ -137,7 +137,7 @@ sbt/
     │   ├── glucksmann.py
     │   ├── key_breakout.py
     │   └── orb.py
-    └── l2/                   Order-book-driven strategies (plain Strategy)
+    └── l2/                   Order-book-driven strategies (L2EventStrategy subclasses)
         └── order_imbalance.py  (registry name: l2_order_imbalance)
 papers/                     Reference PDFs organized by strategy kind (not code)
 ├── ohlc/                   Papers behind bar-driven strategies
