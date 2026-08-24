@@ -6,7 +6,7 @@ multiple execution windows (e.g. in-sample / out-of-sample holdout).
 
 Plugins are enabled per strategy through the ``plugins`` config tuple::
 
-    class MyConfig(SBTStrategyConfig, frozen=True):
+    class MyConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
         plugins: tuple[str, ...] = ("vol_scaling",)
 
 Plugin parameters stay as flat fields on the strategy config so optimizer

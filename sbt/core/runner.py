@@ -250,13 +250,7 @@ def _build_strategy_config(ConfigClass, **kwargs):
     remedy; optimizer/server typos deserve a message listing the valid
     fields. Silent defaults are disabled to keep optimizer trials honest.
     """
-    struct_fields = getattr(ConfigClass, "__struct_fields__", None)
-    if struct_fields is not None:
-        known = tuple(struct_fields)
-    else:
-        import dataclasses
-
-        known = tuple(f.name for f in dataclasses.fields(ConfigClass))
+    known = tuple(ConfigClass.__struct_fields__)
     unknown = [key for key in kwargs if key not in known]
     if unknown:
         raise ValueError(
@@ -671,7 +665,9 @@ class BacktestRunner:
                 strategy_config = _build_strategy_config(
                     ConfigClass, **strategy_kwargs
                 )
-            except ValueError as e:
+            except (TypeError, ValueError) as e:
+                # TypeError: missing required injected field (wrong tier);
+                # ValueError: unknown strategy_params key.
                 return _fail(job_id, str(e))
 
         # --------------------------------------------------------------
@@ -741,7 +737,9 @@ class BacktestRunner:
                 strategy_config = _build_strategy_config(
                     ConfigClass, **strategy_kwargs
                 )
-            except ValueError as e:
+            except (TypeError, ValueError) as e:
+                # TypeError: missing required injected field (wrong tier);
+                # ValueError: unknown strategy_params key.
                 return _fail(job_id, str(e))
 
             print(f"Loaded {len(df)} {cfg.interval} bars (ref_price={ref_price}).")

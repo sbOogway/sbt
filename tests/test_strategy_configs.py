@@ -80,3 +80,24 @@ def test_injected_fields_have_defaults_except_instrument_id():
     assert by_name["instrument_id"].required
     for name in ("capital", "leverage", "backtest_start_date", "active_from", "plugins"):
         assert not by_name[name].required
+
+
+def test_tier_defaults_match_settled_values():
+    import msgspec
+
+    def defaults(config_cls):
+        return {
+            f.name: f.default
+            for f in msgspec.structs.fields(config_cls)
+            if not f.required
+        }
+
+    base_defaults = defaults(SBTStrategyConfig)
+    assert base_defaults["capital"] == Decimal("1000")
+    assert base_defaults["leverage"] == 1.0
+    assert base_defaults["backtest_start_date"] == "2020-01-01"
+    assert base_defaults["active_from"] is None
+    assert base_defaults["plugins"] == ()
+
+    bar_fields = msgspec.structs.fields(SBTBarStrategyConfig)
+    assert [f.name for f in bar_fields if f.required] == ["instrument_id", "bar_type"]

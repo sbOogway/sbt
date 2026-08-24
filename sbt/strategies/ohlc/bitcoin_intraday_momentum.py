@@ -50,7 +50,7 @@ class BitcoinIntradayMomentum(SBTStrategy):
             self.evaluate_signal_and_trade(bar.close.as_double())
 
         if time_str == "17:00":
-            self.close_positions()
+            self.exit_market()
             close_val = bar.close.as_double()
             scaler = self.plugins.get("vol_scaling")
             if scaler is not None and self.prev_close is not None:
@@ -66,9 +66,6 @@ class BitcoinIntradayMomentum(SBTStrategy):
             self._open_trade(OrderSide.SELL, price)
         elif self.r_onfh > 0 and self.r_slh < 0:
             self._open_trade(OrderSide.BUY, price)
-
-    def close_positions(self) -> None:
-        self.exit_market()
 
     def _open_trade(self, order_side: OrderSide, price: float) -> None:
         notional = (
