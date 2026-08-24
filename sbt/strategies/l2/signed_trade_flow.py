@@ -11,11 +11,9 @@ entries.
 """
 
 import math
-from decimal import Decimal
 
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import AggressorSide, OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
 
 from ...plugins import SBTStrategyConfig
 from .base import L2EventStrategy
@@ -23,11 +21,6 @@ from .base import L2EventStrategy
 
 class L2SignedTradeFlowConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     """Configuration for the signed trade flow strategy."""
-
-    instrument_id: InstrumentId
-    capital: Decimal = Decimal("1000")
-    leverage: float = 1.0
-    backtest_start_date: str = "2020-01-01"
 
     signal_interval_ms: int = 500
     entry_threshold: float = 0.3

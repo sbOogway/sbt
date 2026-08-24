@@ -1,23 +1,14 @@
 import pandas as pd
-from decimal import Decimal
 
-from nautilus_trader.model.data import BarType, FundingRateUpdate
+from nautilus_trader.model.data import FundingRateUpdate
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
 
-from ...plugins import SBTStrategyConfig
+from ...plugins import SBTBarStrategyConfig
 from ..base import SBTStrategy
 
 
-class WeekdaySeasonalityConfig(SBTStrategyConfig, kw_only=True, frozen=True):
-    instrument_id: InstrumentId
-    bar_type: BarType
-    # Retained for run provenance; sizing compounds off live account equity.
-    capital: Decimal
-    leverage: float
+class WeekdaySeasonalityConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
     risk_percent: float = 1.0
-
-    backtest_start_date: str = "2020-01-01"
 
     # Day-of-week effect: long over this UTC weekday (Monday premium:
     # Aharon & Qadan 2019; Caporale & Plastun 2019b; Long et al. 2020).

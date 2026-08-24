@@ -1,23 +1,14 @@
 import pandas as pd
-from decimal import Decimal
 
-from nautilus_trader.model.data import BarType, FundingRateUpdate
+from nautilus_trader.model.data import FundingRateUpdate
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
 
-from ...plugins import SBTStrategyConfig
+from ...plugins import SBTBarStrategyConfig
 from ..base import SBTStrategy
 
 
-class OvernightDriftConfig(SBTStrategyConfig, kw_only=True, frozen=True):
-    instrument_id: InstrumentId
-    bar_type: BarType
-    # Retained for run provenance; sizing compounds off live account equity.
-    capital: Decimal
-    leverage: float
+class OvernightDriftConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
     risk_percent: float = 1.0
-
-    backtest_start_date: str = "2020-01-01"
 
     entry_time: str = "20:00"
     exit_time: str = "14:00"

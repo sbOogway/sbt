@@ -14,11 +14,13 @@ specs (``rv_lookback=int(3,30)``) keep working unchanged.
 """
 
 from abc import ABC, abstractmethod
+from decimal import Decimal
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 import pandas as pd
 from nautilus_trader.config import StrategyConfig
-from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.identifiers import InstrumentId
 
 from sbt.core.job import BacktestResult
 
@@ -29,16 +31,33 @@ if TYPE_CHECKING:
 class SBTStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     """Base config for all SBT strategies.
 
-    Adds the ``plugins`` tuple used to opt in to pluggable behaviour, and
-    ``active_from`` for trading-window gating: bars before this timestamp
-    warm up indicators/plugins but cannot produce orders (used by runner
-    windows that preload lookback data).
+    Carries the runner-injected fields — ``instrument_id``, ``capital``,
+    ``leverage``, ``backtest_start_date``, ``active_from`` — so concrete
+    strategies declare only their signal parameters. The runner always
+    supplies these on construction; the defaults exist for direct use in
+    tests. Also holds the ``plugins`` opt-in tuple and ``active_from`` for
+    trading-window gating: bars before this timestamp warm up
+    indicators/plugins but cannot produce orders.
     ``kw_only=True`` matches nautilus ``StrategyConfig`` so subclasses may
     freely mix required and defaulted fields.
     """
 
+    instrument_id: InstrumentId
+    capital: Decimal = Decimal("1000")
+    leverage: float = 1.0
+    backtest_start_date: str = "2020-01-01"
     plugins: tuple[str, ...] = ()
     active_from: str | None = None
+
+
+class SBTBarStrategyConfig(SBTStrategyConfig, kw_only=True, frozen=True):
+    """Config tier for bar-driven strategies: adds the ``bar_type``.
+
+    Bar-mode strategies subclass this; order-book (L2) strategies subclass
+    :class:`SBTStrategyConfig` directly and never receive a ``bar_type``.
+    """
+
+    bar_type: BarType
 
 
 class StrategyPlugin(ABC):

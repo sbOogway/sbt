@@ -19,7 +19,6 @@ from decimal import Decimal
 
 from nautilus_trader.model.data import OrderBookDelta, OrderBookDeltas, TradeTick
 from nautilus_trader.model.enums import AggressorSide, BookAction, BookType, OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
 from ...plugins import SBTStrategyConfig
@@ -27,11 +26,6 @@ from ...plugins import SBTStrategyConfig
 
 class L2OrderImbalanceConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     """Configuration for L2 Order Book Imbalance Strategy."""
-
-    instrument_id: InstrumentId
-    capital: Decimal = Decimal("1000")
-    leverage: float = 1.0
-    backtest_start_date: str = "2020-01-01"
 
     # Composite entry threshold applied to the blended signal z.
     imbalance_threshold: float = 0.6

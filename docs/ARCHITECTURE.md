@@ -51,7 +51,7 @@ code path per data mode (`bar`, `l2`) inside `_run_window`.
 | `sbt/core/l2.py` | Nautilus catalog L2 loaders | `load_order_book_deltas`, `load_trade_ticks`, `list_l2_instruments` |
 | `sbt/utils.py` | Strategy registry, instrument factory, intervals | `_STRATEGY_REGISTRY`, `get_strategy_class`, `make_perpetual`, `parse_interval`, `interval_delta` |
 | `sbt/stats.py` | Custom portfolio statistics | `system_quality_number`, `CalmarRatio`, `AnnualizedReturn`, `RunConfigStatistic` |
-| `sbt/plugins/base.py` | Plugin contracts + host + Window | `SBTStrategyConfig`, `StrategyPlugin`, `SizingPlugin`, `RunnerPlugin`, `Window`, `PluginHost` |
+| `sbt/plugins/base.py` | Plugin contracts + host + config tiers + Window | `SBTStrategyConfig`, `SBTBarStrategyConfig`, `StrategyPlugin`, `SizingPlugin`, `RunnerPlugin`, `Window`, `PluginHost` |
 | `sbt/plugins/vol_scaling.py` | Moreira–Muir realized-vol sizing | `VolScalingPlugin` |
 | `sbt/plugins/train_val_split.py` | Runner-level IS/OOS holdout | `TrainValSplit`, `IN_SAMPLE`, `OUT_OF_SAMPLE` |
 | `sbt/plugins/__init__.py` | Plugin registries | `_PLUGIN_REGISTRY`, `_RUNNER_PLUGIN_REGISTRY`, `get_plugin_class`, `get_runner_plugin_class` |
@@ -210,18 +210,32 @@ Funding does NOT flow through engine PnL — it is metadata reported as
 Registry: `utils._STRATEGY_REGISTRY`, name → (module, strategy class,
 config class). Bar-driven strategies live in `strategies/ohlc/`:
 `bitcoin_intraday_momentum`, `glucksmann`,
-`key_breakout`, `orb`, `overnight_drift` (all SBTStrategy subclasses).
-Order-book strategies live in `strategies/l2/`: `l2_order_imbalance`
+`key_breakout`, `orb`, `overnight_drift`, plus the reversal/seasonality
+pair (all SBTStrategy subclasses). Order-book strategies live in
+`strategies/l2/`: `l2_order_imbalance`
 (module `strategies.l2.order_imbalance`) stays a plain nautilus
 `Strategy` (no bar stream) though its config still inherits
 `SBTStrategyConfig`.
+
+### Config hierarchy & runner-injected fields
+
+`SBTStrategyConfig` (plugins/base.py) carries every field the runner
+injects at construction: `instrument_id` (required), `capital`,
+`leverage`, `backtest_start_date`, `active_from` — concrete strategies
+declare only signal parameters. `SBTBarStrategyConfig(SBTStrategyConfig)`
+adds `bar_type` for bar-driven strategies; L2 configs subclass the base
+directly and never receive one. Construction goes through
+`core.runner._build_strategy_config`, which raises (→ FAILED result)
+listing unknown keys + valid fields, so optimizer/server typos fail
+loudly. Tests pin this per registered strategy
+(`tests/test_strategy_configs.py`).
 
 ### msgspec gotcha (breaks construction)
 
 nautilus `StrategyConfig` is a msgspec Struct. Subclasses must declare:
 
 ```python
-class XConfig(SBTStrategyConfig, kw_only=True, frozen=True):
+class XConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
 ```
 
 `kw_only=True` is NOT inherited, and re-declaring an inherited field (e.g.
@@ -434,8 +448,8 @@ resolution; unknown exchanges omit the chart. With a train/val split,
 1. **BarDataWrangler is broken** on nautilus 1.230.0 ("buffer source array
    is read-only" for every input shape). Use `core.runner.load_bars`.
 2. **msgspec kw_only trap**: every strategy config must declare
-   `(SBTStrategyConfig, kw_only=True, frozen=True)` — see §5. Missing it
-   breaks struct construction at import/run time.
+   `kw_only=True, frozen=True` on its subclass of the config tier — see §5.
+   Missing it breaks struct construction at import/run time.
 3. **tz-aware Timestamp rejection**: `pd.Timestamp(x, tz="UTC")` raises if
    x is already tz-aware. L2 loaders need plain date strings; normalize
    with `str(_to_utc_ts(x))`.

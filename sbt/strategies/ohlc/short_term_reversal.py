@@ -1,22 +1,12 @@
-from decimal import Decimal
-
-from nautilus_trader.model.data import BarType, FundingRateUpdate
+from nautilus_trader.model.data import FundingRateUpdate
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
 
-from ...plugins import SBTStrategyConfig
+from ...plugins import SBTBarStrategyConfig
 from ..base import SBTStrategy
 
 
-class ShortTermReversalConfig(SBTStrategyConfig, kw_only=True, frozen=True):
-    instrument_id: InstrumentId
-    bar_type: BarType
-    # Retained for run provenance; sizing compounds off live account equity.
-    capital: Decimal
-    leverage: float
+class ShortTermReversalConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
     risk_percent: float = 1.0
-
-    backtest_start_date: str = "2020-01-01"
 
     # Short-term reversal / overreaction fade (Kosc et al. 2019; Zaremba et
     # al. 2021; Caporale & Plastun 2019a): a daily move whose magnitude

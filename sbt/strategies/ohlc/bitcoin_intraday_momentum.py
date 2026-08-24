@@ -1,23 +1,12 @@
-from decimal import Decimal
-
 import pandas as pd
-from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
 
-from ...plugins import SBTStrategyConfig
+from ...plugins import SBTBarStrategyConfig
 from ..base import SBTStrategy
 
 
-class BitcoinIntradayMomentumConfig(SBTStrategyConfig, kw_only=True, frozen=True):
-    instrument_id: InstrumentId
-    bar_type: BarType
-    # Retained for run provenance; sizing compounds off live account equity.
-    capital: Decimal
-    leverage: float
+class BitcoinIntradayMomentumConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
     risk_percent: float = 1.0
-
-    backtest_start_date: str = "2020-01-01"
 
     onfh_close_time: str = "08:00"
     slh_open_time: str = "16:00"

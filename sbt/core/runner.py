@@ -243,6 +243,29 @@ def _base_strategy_kwargs(cfg: RunConfig, instrument_id, start_ts) -> dict:
     }
 
 
+def _build_strategy_config(ConfigClass, **kwargs):
+    """Construct a strategy config, rejecting unknown keys loudly.
+
+    msgspec Structs reject unknown kwargs anyway, but the error names no
+    remedy; optimizer/server typos deserve a message listing the valid
+    fields. Silent defaults are disabled to keep optimizer trials honest.
+    """
+    struct_fields = getattr(ConfigClass, "__struct_fields__", None)
+    if struct_fields is not None:
+        known = tuple(struct_fields)
+    else:
+        import dataclasses
+
+        known = tuple(f.name for f in dataclasses.fields(ConfigClass))
+    unknown = [key for key in kwargs if key not in known]
+    if unknown:
+        raise ValueError(
+            f"Unknown parameters {sorted(unknown)} for "
+            f"{ConfigClass.__name__}. Valid fields: {sorted(known)}."
+        )
+    return ConfigClass(**kwargs)
+
+
 def _register_stats(engine: BacktestEngine, cfg: RunConfig, instrument) -> None:
     analyzer = engine.portfolio.analyzer
     analyzer.register_statistic(CalmarRatio())
@@ -643,21 +666,13 @@ class BacktestRunner:
 
             StrategyClass, ConfigClass = get_strategy_class(cfg.strategy_name)
             strategy_kwargs = _base_strategy_kwargs(cfg, instrument.id, start)
-
-            annotations = getattr(ConfigClass, "__annotations__", {})
-            if "bar_type" in annotations or hasattr(ConfigClass, "bar_type"):
-                try:
-                    interval_nt = parse_interval(cfg.interval)
-                except ValueError as e:
-                    raise ValueError(
-                        f"Cannot build bar_type for L2 strategy "
-                        f"'{cfg.strategy_name}': {e}"
-                    ) from e
-                strategy_kwargs["bar_type"] = BarType.from_str(
-                    f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL"
+            # L2 configs subclass SBTStrategyConfig directly: no bar_type.
+            try:
+                strategy_config = _build_strategy_config(
+                    ConfigClass, **strategy_kwargs
                 )
-
-            strategy_config = ConfigClass(**strategy_kwargs)
+            except ValueError as e:
+                return _fail(job_id, str(e))
 
         # --------------------------------------------------------------
         # Bar (OHLCV) Execution Mode
@@ -720,8 +735,14 @@ class BacktestRunner:
 
             StrategyClass, ConfigClass = get_strategy_class(cfg.strategy_name)
             strategy_kwargs = _base_strategy_kwargs(cfg, instrument.id, window_start)
+            # Bar-mode configs subclass SBTBarStrategyConfig: bar_type required.
             strategy_kwargs["bar_type"] = bar_type
-            strategy_config = ConfigClass(**strategy_kwargs)
+            try:
+                strategy_config = _build_strategy_config(
+                    ConfigClass, **strategy_kwargs
+                )
+            except ValueError as e:
+                return _fail(job_id, str(e))
 
             print(f"Loaded {len(df)} {cfg.interval} bars (ref_price={ref_price}).")
             bar_updates = load_bars(df, bar_type, instrument)

@@ -8,21 +8,12 @@ next mid-price move. Traded here with a ratio threshold, hysteresis
 exit and a short time stop.
 """
 
-from decimal import Decimal
-
-from nautilus_trader.model.identifiers import InstrumentId
-
 from ...plugins import SBTStrategyConfig
 from .base import L2EventStrategy
 
 
 class L2QueueImbalanceConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     """Configuration for the queue imbalance strategy."""
-
-    instrument_id: InstrumentId
-    capital: Decimal = Decimal("1000")
-    leverage: float = 1.0
-    backtest_start_date: str = "2020-01-01"
 
     signal_interval_ms: int = 250
     entry_threshold: float = 0.25

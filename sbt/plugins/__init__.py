@@ -3,6 +3,7 @@
 from .base import (
     PluginHost,
     RunnerPlugin,
+    SBTBarStrategyConfig,
     SBTStrategyConfig,
     SizingPlugin,
     StrategyPlugin,
@@ -48,6 +49,7 @@ __all__ = [
     "OUT_OF_SAMPLE",
     "PluginHost",
     "RunnerPlugin",
+    "SBTBarStrategyConfig",
     "SBTStrategyConfig",
     "SizingPlugin",
     "StrategyPlugin",

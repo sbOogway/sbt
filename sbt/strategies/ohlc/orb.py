@@ -1,25 +1,14 @@
 from datetime import date
-from decimal import Decimal
 
 import pandas as pd
-from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 
-from ...plugins import SBTStrategyConfig
+from ...plugins import SBTBarStrategyConfig
 from ..base import SBTStrategy
 
 
-class ORBConfig(SBTStrategyConfig, kw_only=True, frozen=True):
-    instrument_id: InstrumentId
-    bar_type: BarType
-    # Retained for run provenance; sizing compounds off live account equity.
-    capital: Decimal
-    leverage: float
-
-    backtest_start_date: str = "2020-01-01"
-
+class ORBConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
     orb_period: int = 12
     atr_period: int = 14
     atr_stop_multiple: float = 0.5

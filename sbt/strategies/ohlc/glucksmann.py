@@ -1,28 +1,16 @@
-from decimal import Decimal
-
 from nautilus_trader.indicators import (
     BollingerBands,
     DonchianChannel,
     SimpleMovingAverage,
 )
-from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
 
-from ...plugins import SBTStrategyConfig
+from ...plugins import SBTBarStrategyConfig
 from ..base import SBTStrategy
 
 
-class GlucksmannConfig(SBTStrategyConfig, kw_only=True, frozen=True):
-    instrument_id: InstrumentId
-    bar_type: BarType
-    # Retained for run provenance; sizing compounds off live account equity.
-    capital: Decimal
-    leverage: float = 1.0
-
-    backtest_start_date: str = "2020-01-01"
-
+class GlucksmannConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
     bb_period: int = 20
     bb_std: float = 2.0
 
