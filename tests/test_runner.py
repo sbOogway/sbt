@@ -70,15 +70,14 @@ def test_explicit_bars_with_split(orb_config, make_bars):
 def test_injected_funding_reaches_engine(synthetic_bars, orb_config, monkeypatch):
     """A funding frame provided at run() flows into the engine side-channel.
 
-    A probe strategy subscribes to funding rates and holds a synthetic
-    long, accruing deterministically on every bar while a position is
-    notionally open.
+    A probe strategy opts in via ``subscribe_funding`` on its config (the
+    base subscribes in ``on_start``) and holds a synthetic long, accruing
+    deterministically on every bar while a position is notionally open.
     """
 
     class FundingProbe(SBTStrategy):
         def on_start(self) -> None:
             super().on_start()
-            self.subscribe_funding_rates(self.instrument_id)
             self.position_side = OrderSide.BUY
             self._open_qty = Quantity(1.0, precision=3)
 
@@ -94,6 +93,15 @@ def test_injected_funding_reaches_engine(synthetic_bars, orb_config, monkeypatch
     monkeypatch.setattr(
         runner_mod, "get_strategy_class", lambda name: (FundingProbe, ORBConfig)
     )
+    cfg = RunConfig(
+        **{
+            **orb_config.__dict__,
+            "strategy_params": {
+                **orb_config.strategy_params,
+                "subscribe_funding": True,
+            },
+        }
+    )
 
     funding = pd.DataFrame(
         {
@@ -101,7 +109,7 @@ def test_injected_funding_reaches_engine(synthetic_bars, orb_config, monkeypatch
             "funding_rate": 0.0001,
         }
     )
-    result = BacktestRunner(orb_config).run(bars=synthetic_bars, funding=funding)
+    result = BacktestRunner(cfg).run(bars=synthetic_bars, funding=funding)
 
     assert result.status == JobStatus.DONE, result.error
     assert result.funding_pnl > 0

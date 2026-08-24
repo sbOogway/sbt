@@ -6,8 +6,6 @@ from ..base import SBTStrategy
 
 
 class BitcoinIntradayMomentumConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
-    risk_percent: float = 1.0
-
     onfh_close_time: str = "08:00"
     slh_open_time: str = "16:00"
     slh_close_time: str = "16:30"
@@ -68,10 +66,4 @@ class BitcoinIntradayMomentum(SBTStrategy):
             self._open_trade(OrderSide.BUY, price)
 
     def _open_trade(self, order_side: OrderSide, price: float) -> None:
-        notional = (
-            self.equity()
-            * self.config.risk_percent
-            * self.config.leverage
-            * self.vol_multiplier()
-        )
-        self.enter_market(order_side, self.sized_quantity(notional / price))
+        self.open_position(order_side, price)

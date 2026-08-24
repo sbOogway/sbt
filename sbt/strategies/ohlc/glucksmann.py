@@ -4,7 +4,6 @@ from nautilus_trader.indicators import (
     SimpleMovingAverage,
 )
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.objects import Quantity
 
 from ...plugins import SBTBarStrategyConfig
 from ..base import SBTStrategy
@@ -101,12 +100,6 @@ class GlucksmannStrategy(SBTStrategy):
         self._need_long_entry: bool = False
         self._need_short_entry: bool = False
 
-    def _calc_qty(self, price: float) -> Quantity | None:
-        notional = (
-            self.equity() * self.config.leverage * self.vol_multiplier()
-        )
-        return self.sized_quantity(notional / price)
-
     def _vol_ok(self) -> bool:
         return (
             self.sma_vol_fast.initialized
@@ -144,8 +137,7 @@ class GlucksmannStrategy(SBTStrategy):
         )
 
     def _enter_long(self, bar, close: float) -> None:
-        qty = self._calc_qty(close)
-        if not self.enter_market(OrderSide.BUY, qty):
+        if not self.open_position(OrderSide.BUY, close):
             return
         self._entry_price = close
         self._entry_candle_low = bar.low.as_double()
@@ -163,8 +155,7 @@ class GlucksmannStrategy(SBTStrategy):
         self._wait_for_short = False
 
     def _enter_short(self, bar, close: float) -> None:
-        qty = self._calc_qty(close)
-        if not self.enter_market(OrderSide.SELL, qty):
+        if not self.open_position(OrderSide.SELL, close):
             return
         self._entry_price = close
         self._entry_candle_high = bar.high.as_double()

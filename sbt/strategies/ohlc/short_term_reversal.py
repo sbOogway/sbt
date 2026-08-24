@@ -5,8 +5,6 @@ from ..base import SBTStrategy
 
 
 class ShortTermReversalConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
-    risk_percent: float = 1.0
-
     # Short-term reversal / overreaction fade (Kosc et al. 2019; Zaremba et
     # al. 2021; Caporale & Plastun 2019a): a daily move whose magnitude
     # exceeds threshold_mult x mean(|r|) over the trailing lookback days is
@@ -15,6 +13,7 @@ class ShortTermReversalConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
     threshold_mult: float = 3.0
     holding_days: int = 1
 
+    subscribe_funding: bool = True
     plugins: tuple[str, ...] = ("vol_scaling",)
     # Returns are fed manually per completed daily bar.
     vol_track_daily: bool = False
@@ -28,10 +27,6 @@ class ShortTermReversal(SBTStrategy):
         self._returns: list[float] = []
         self._prev_close: float | None = None
         self._bars_held: int = 0
-
-    def on_start(self) -> None:
-        self.subscribe_funding_rates(self.instrument_id)
-        super().on_start()
 
     def _close_position(self) -> None:
         if self.exit_market():
@@ -69,11 +64,5 @@ class ShortTermReversal(SBTStrategy):
             return
 
         side = OrderSide.SELL if r_last > 0 else OrderSide.BUY
-        notional = (
-            self.equity()
-            * self.config.risk_percent
-            * self.config.leverage
-            * self.plugins.size_multiplier()
-        )
-        if self.enter_market(side, self.sized_quantity(notional / close_price)):
+        if self.open_position(side, close_price):
             self._bars_held = 0

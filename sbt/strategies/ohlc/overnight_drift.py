@@ -7,8 +7,6 @@ from ..base import SBTStrategy
 
 
 class OvernightDriftConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
-    risk_percent: float = 1.0
-
     entry_time: str = "20:00"
     exit_time: str = "14:00"
 
@@ -19,7 +17,6 @@ class OvernightDriftConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
     rv_lookback: int = 5
     vol_max_scale: float = 2.0
     weekdays_only: bool = True
-    funding_enabled: bool = False
 
 
 class OvernightDrift(SBTStrategy):
@@ -41,16 +38,7 @@ class OvernightDrift(SBTStrategy):
                 and close_price < self.prev_close
                 and should_trade
             ):
-                notional = (
-                    self.equity()
-                    * self.config.risk_percent
-                    * self.config.leverage
-                    * self.vol_multiplier()
-                )
-                self.enter_market(
-                    OrderSide.BUY,
-                    self.sized_quantity(notional / close_price),
-                )
+                self.open_position(OrderSide.BUY, close_price)
 
             scaler = self.plugins.get("vol_scaling")
             if scaler is not None and self.prev_close is not None:

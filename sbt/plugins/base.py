@@ -35,9 +35,12 @@ class SBTStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     ``leverage``, ``backtest_start_date``, ``active_from`` — so concrete
     strategies declare only their signal parameters. The runner always
     supplies these on construction; the defaults exist for direct use in
-    tests. Also holds the ``plugins`` opt-in tuple and ``active_from`` for
-    trading-window gating: bars before this timestamp warm up
-    indicators/plugins but cannot produce orders.
+    tests. Also holds the shared sizing/trading knobs — ``risk_percent``
+    (full-notional entries via :meth:`SBTStrategy.open_position`) and
+    ``subscribe_funding`` (funding-rate side-channel opt-in) — and the
+    ``plugins`` opt-in tuple plus ``active_from`` for trading-window
+    gating: bars before this timestamp warm up indicators/plugins but
+    cannot produce orders.
     ``kw_only=True`` matches nautilus ``StrategyConfig`` so subclasses may
     freely mix required and defaulted fields.
     """
@@ -46,6 +49,10 @@ class SBTStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     capital: Decimal = Decimal("1000")
     leverage: float = 1.0
     backtest_start_date: str = "2020-01-01"
+    # Full-notional entries: notional = equity * risk_percent * leverage
+    # * plugin multiplier (stop-distance sizing ignores it).
+    risk_percent: float = 1.0
+    subscribe_funding: bool = False
     plugins: tuple[str, ...] = ()
     active_from: str | None = None
 

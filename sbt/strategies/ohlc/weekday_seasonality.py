@@ -7,8 +7,6 @@ from ..base import SBTStrategy
 
 
 class WeekdaySeasonalityConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
-    risk_percent: float = 1.0
-
     # Day-of-week effect: long over this UTC weekday (Monday premium:
     # Aharon & Qadan 2019; Caporale & Plastun 2019b; Long et al. 2020).
     # Daily bars are open-stamped, so the entry fills at the PRIOR day's
@@ -19,16 +17,13 @@ class WeekdaySeasonalityConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
     # empty = trade all months.
     skip_months: tuple[int, ...] = ()
 
+    subscribe_funding: bool = True
     plugins: tuple[str, ...] = ("vol_scaling",)
     rv_lookback: int = 30
     vol_max_scale: float = 3.0
 
 
 class WeekdaySeasonality(SBTStrategy):
-    def on_start(self) -> None:
-        self.subscribe_funding_rates(self.instrument_id)
-        super().on_start()
-
     def on_trading_bar(self, bar) -> None:
         dt_utc = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
         close_price = bar.close.as_double()
@@ -42,13 +37,4 @@ class WeekdaySeasonality(SBTStrategy):
             target_date.weekday() == self.config.entry_weekday
             and target_date.month not in self.config.skip_months
         ):
-            notional = (
-                self.equity()
-                * self.config.risk_percent
-                * self.config.leverage
-                * self.plugins.size_multiplier()
-            )
-            self.enter_market(
-                OrderSide.BUY,
-                self.sized_quantity(notional / close_price),
-            )
+            self.open_position(OrderSide.BUY, close_price)

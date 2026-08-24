@@ -85,6 +85,8 @@ class SBTStrategy(Strategy):
 
     def on_start(self) -> None:
         self.plugins.on_start(self)
+        if self.config.subscribe_funding:
+            self.subscribe_funding_rates(self.instrument_id)
         bar_type = getattr(self.config, "bar_type", None)
         if bar_type is not None:
             self.subscribe_bars(bar_type)
@@ -101,9 +103,9 @@ class SBTStrategy(Strategy):
     def on_funding_rate(self, funding_rate: FundingRateUpdate) -> None:
         """Accrue one funding payment against the open position.
 
-        Strategies opt in by subscribing funding rates for their
-        instrument (``subscribe_funding_rates(self.instrument_id)`` in
-        ``on_start``); accrual prices at the latest bar close.
+        Strategies opt in via ``subscribe_funding=True`` on their config
+        (the base subscribes in ``on_start``); accrual prices at the
+        latest bar close.
         """
         self.funding.accrue(
             self.position_side,
@@ -141,9 +143,22 @@ class SBTStrategy(Strategy):
         bal = account.balance_total()
         return float(bal.as_double()) if bal is not None else 0.0
 
-    def vol_multiplier(self) -> float:
-        """Product of all sizing-plugin multipliers (1.0 when none)."""
-        return self.plugins.size_multiplier()
+    def open_position(self, side: OrderSide, price: float) -> bool:
+        """Enter at market, sized off live equity (the canonical formula).
+
+        ``notional = equity * risk_percent * leverage
+        * plugins.size_multiplier()``; quantity = notional / *price*.
+        Stop-distance strategies size via :meth:`risk_quantity` instead.
+        """
+        if price <= 0:
+            return False
+        notional = (
+            self.equity()
+            * self.config.risk_percent
+            * self.config.leverage
+            * self.plugins.size_multiplier()
+        )
+        return self.enter_market(side, self.sized_quantity(notional / price))
 
     def sized_quantity(self, size: float) -> Quantity | None:
         qty = round(size, 3)
