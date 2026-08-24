@@ -40,6 +40,36 @@ _STRATEGY_REGISTRY = {
         "L2OrderImbalance",
         "L2OrderImbalanceConfig",
     ),
+    "l2_queue_imbalance": (
+        "strategies.l2.queue_imbalance",
+        "L2QueueImbalance",
+        "L2QueueImbalanceConfig",
+    ),
+    "l2_best_quote_ofi": (
+        "strategies.l2.best_quote_ofi",
+        "L2BestQuoteOFI",
+        "L2BestQuoteOFIConfig",
+    ),
+    "l2_multilevel_ofi": (
+        "strategies.l2.multilevel_ofi",
+        "L2MultilevelOFI",
+        "L2MultilevelOFIConfig",
+    ),
+    "l2_signed_trade_flow": (
+        "strategies.l2.signed_trade_flow",
+        "L2SignedTradeFlow",
+        "L2SignedTradeFlowConfig",
+    ),
+    "l2_book_pressure": (
+        "strategies.l2.book_pressure",
+        "L2BookPressure",
+        "L2BookPressureConfig",
+    ),
+    "l2_microprice": (
+        "strategies.l2.microprice",
+        "L2Microprice",
+        "L2MicropriceConfig",
+    ),
 }
 
 

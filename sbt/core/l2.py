@@ -17,6 +17,23 @@ from nautilus_trader.serialization.arrow.serializer import ArrowSerializer
 
 logger = logging.getLogger("L2Data")
 
+# Single-slot cache: re-running trials/jobs over the same window (Optuna
+# studies, scheduler retries) must not rebuild multi-GB object lists each
+# time — Python never fully returns that memory to the OS. Keyed on the
+# full load spec; a different spec evicts the previous entry.
+_L2_CACHE: dict[tuple, list] = {}
+
+
+def _cached(key: tuple, build):
+    """Return cached list for *key*, rebuilding (single slot) on miss."""
+    hit = _L2_CACHE.get(key)
+    if hit is not None:
+        logger.info("Reusing cached L2 data (%d records)", len(hit))
+        return hit
+    _L2_CACHE.clear()
+    _L2_CACHE[key] = build()
+    return _L2_CACHE[key]
+
 _ACTION_MAP = {
     1: BookAction.ADD,
     2: BookAction.UPDATE,
@@ -130,8 +147,16 @@ def load_order_book_deltas(
     if not files:
         return []
 
-    logger.info("Loading %d order book delta files for %s...", len(files), inst_str)
+    return _cached(
+        ("deltas", inst_str, catalog_dir, str(start), str(end), len(files)),
+        lambda: _load_order_book_deltas(files, instrument, start, end),
+    )
 
+
+def _load_order_book_deltas(
+    files: list[str], instrument: Instrument, start: str | None, end: str | None
+) -> list[OrderBookDelta]:
+    inst_str = instrument.id.value
     inst_id = instrument.id
     p_prec = instrument.price_precision
     s_prec = instrument.size_precision
@@ -205,8 +230,16 @@ def load_trade_ticks(
     if not files:
         return []
 
-    logger.info("Loading %d trade tick files for %s...", len(files), inst_str)
+    return _cached(
+        ("trades", inst_str, catalog_dir, str(start), str(end), len(files)),
+        lambda: _load_trade_ticks(files, instrument, start, end),
+    )
 
+
+def _load_trade_ticks(
+    files: list[str], instrument: Instrument, start: str | None, end: str | None
+) -> list[TradeTick]:
+    inst_str = instrument.id.value
     inst_id = instrument.id
     p_prec = instrument.price_precision
     s_prec = instrument.size_precision

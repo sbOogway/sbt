@@ -12,6 +12,8 @@ Execution modes:
 """
 
 import datetime
+import gc
+import multiprocessing
 import time
 from pathlib import Path
 
@@ -28,7 +30,12 @@ _RESULT_POLL_S = 1.0
 
 
 class LocalExecutor:
-    """Run every trial inline in the current process (sequential)."""
+    """Run every trial inline in the current process (original path).
+
+    Trial #0 runs inline (priming the L2 loader cache); every later trial
+    forks a child so the multi-GB engine state is reclaimed by the OS on
+    exit instead of fragmenting this process.
+    """
 
     name = "local"
 
@@ -36,23 +43,78 @@ class LocalExecutor:
         self.base_config = base_config
         self.objective = objective
         self.primary_label = primary_label
+        self._mp_ctx = multiprocessing.get_context("fork")
+
+    @staticmethod
+    def _metrics(result, objective: str) -> dict:
+        return {
+            "pnl": result.pnl,
+            "trades": result.num_trades,
+            "sqn": result.sqn if objective == "sqn" else None,
+            "sharpe_ratio": (
+                result.sharpe_ratio if objective == "sharpe" else None
+            ),
+        }
+
+    def _run_inline(self, config: RunConfig, job_id: str) -> dict:
+        runner = BacktestRunner(config)
+        try:
+            result = runner.run(job_id=job_id)
+        finally:
+            del runner
+            gc.collect()
+        return self._metrics(result, self.objective)
+
+    def _run_forked(self, config: RunConfig, job_id: str) -> dict:
+        queue = self._mp_ctx.Queue()
+
+        def child():
+            try:
+                queue.put(self._run_inline(config, job_id))
+            except BaseException as e:  # noqa: BLE001 - forwarded to parent
+                queue.put({"error": f"{type(e).__name__}: {e}"})
+
+        proc = self._mp_ctx.Process(target=child, daemon=True)
+        proc.start()
+        proc.join()
+        payload = None
+        if proc.exitcode == 0:
+            try:
+                payload = queue.get(timeout=30)
+            except Exception:
+                payload = None
+        if not isinstance(payload, dict) or "error" in payload:
+            reason = (
+                payload.get("error")
+                if isinstance(payload, dict)
+                else f"child exited with code {proc.exitcode}"
+            )
+            raise RuntimeError(reason)
+        return payload
 
     def run(self, study: optuna.Study, param_space: dict, n_trials: int) -> None:
         def objective_fn(trial: optuna.Trial):
             params = suggest_params(trial, param_space)
             config = self.base_config.with_overrides(params)
+            job_id = f"trial_{trial.number}"
             try:
-                result = BacktestRunner(config).run(job_id=f"trial_{trial.number}")
+                metrics = (
+                    self._run_inline(config, job_id)
+                    if trial.number == 0  # primes the L2 data cache
+                    else self._run_forked(config, job_id)
+                )
             except Exception as e:
                 # A crashed trial must not poison the study with (0,0,0);
                 # prune it so TPE resamples elsewhere.
                 raise optuna.TrialPruned(f"backtest failed: {e}") from e
 
             primary = (
-                result.sqn if self.objective == "sqn" else result.sharpe_ratio
+                metrics["sqn"] if self.objective == "sqn" else metrics["sharpe_ratio"]
             ) or 0.0
-            trades = float(result.num_trades or 0)
-            pnl = result.pnl or 0.0
+            if primary != primary:  # NaN (e.g. too few samples) -> reject trial
+                raise optuna.TrialPruned("objective is NaN")
+            trades = float(metrics["trades"] or 0)
+            pnl = metrics["pnl"] or 0.0
 
             print(
                 f"[Trial #{trial.number:03d}] {self.primary_label}: {primary:+.2f} | "
@@ -94,6 +156,8 @@ class SchedulerExecutor:
         primary = (
             result_dict.get("sqn" if self.objective == "sqn" else "sharpe_ratio")
         ) or 0.0
+        if primary != primary:  # NaN
+            primary = 0.0
         trades = float(result_dict.get("num_trades") or 0)
         pnl = float(result_dict.get("pnl") or 0.0)
         return primary if self.objective == "sqn" else (primary, trades, pnl)

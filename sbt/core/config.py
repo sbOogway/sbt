@@ -165,13 +165,22 @@ class RunConfig:
             help="Do not open the tearsheet in a browser after the run",
         )
         parser.add_argument(
+            "--param",
+            action="append",
+            metavar="NAME=VALUE",
+            help=(
+                "Override a single strategy parameter, e.g. "
+                "--param entry_threshold=0.6 (repeatable)"
+            ),
+        )
+        parser.add_argument(
             "--strategy",
             default="bitcoin_intraday_momentum",
             help="Strategy section name in config (default: bitcoin_intraday_momentum)",
         )
         args = parser.parse_args()
 
-        return cls.from_toml(
+        cfg = cls.from_toml(
             toml_path=args.config,
             strategy_name=args.strategy,
             cli_overrides={
@@ -189,6 +198,31 @@ class RunConfig:
                 "open_report": not args.no_open,
             },
         )
+        if args.param:
+            overrides = {}
+            for spec in args.param:
+                name, _, raw = spec.partition("=")
+                if not name or not raw:
+                    raise ValueError(
+                        f"Invalid --param '{spec}': expected NAME=VALUE"
+                    )
+                overrides[name.strip()] = _parse_scalar(raw)
+            cfg = cfg.with_overrides(overrides)
+        return cfg
+
+
+def _parse_scalar(raw: str):
+    """Infer the type of a CLI scalar: int -> float -> bool -> str."""
+    text = raw.strip()
+    for cast in (int, float):
+        try:
+            return cast(text)
+        except ValueError:
+            pass
+    low = text.lower()
+    if low in {"true", "false"}:
+        return low == "true"
+    return text
 
 
 def _coerce(value, tp):
