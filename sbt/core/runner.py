@@ -142,6 +142,171 @@ def _fmt_metric(value) -> str:
     return f"{value:,}"
 
 
+# ------------------------------------------------------------------
+# Shared assembly helpers (used by both bar and L2 execution modes)
+# ------------------------------------------------------------------
+
+_BARS_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
+
+
+def _fail(job_id: str, error: str) -> BacktestResult:
+    return BacktestResult(job_id=job_id, status=JobStatus.FAILED, error=error)
+
+
+def _resolve_currency(code: str):
+    """Map a currency code onto a Nautilus Currency, synthesizing when unknown."""
+    cur = _CURRENCY_MAP.get(code)
+    return cur if cur is not None else Currency(code, 2, 0, code, 0)
+
+
+def _select_bars_columns(df: pd.DataFrame) -> tuple[pd.DataFrame | None, str | None]:
+    """Restrict a frame to the six OHLCV columns; report missing ones."""
+    try:
+        return df[_BARS_COLUMNS], None
+    except KeyError as e:
+        return None, f"Bars frame missing expected columns: {e}"
+
+
+def _discover_bars(
+    cfg: RunConfig, start_ts: pd.Timestamp, end_ts: pd.Timestamp | None
+) -> tuple[pd.DataFrame | None, str | None]:
+    """Resolve, load, column-select and date-filter the feather OHLCV frame."""
+    feather_path = cfg.feather_path or find_feather(
+        cfg.exchange,
+        cfg.symbol,
+        cfg.interval,
+        search_dirs=[cfg.data_dir, "."],
+        start=cfg.start,
+        end=cfg.end,
+    )
+    if not feather_path:
+        return None, f"No feather data found for {cfg.symbol} ({cfg.interval})"
+
+    print(f"Loading data from {feather_path}...")
+    try:
+        df = pd.read_feather(feather_path)
+    except FileNotFoundError:
+        return None, f"Feather file '{feather_path}' not found."
+
+    df, err = _select_bars_columns(df)
+    if err:
+        return None, err
+
+    df = df[df["timestamp"] >= start_ts].reset_index(drop=True)
+    if end_ts is not None:
+        df = df[df["timestamp"] <= end_ts].reset_index(drop=True)
+    return df, None
+
+
+def _slice_frame(
+    df: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp | None
+) -> pd.DataFrame:
+    """Trim a timestamped frame to [start_ts, end_ts] (inclusive)."""
+    out = df[df["timestamp"] >= start_ts].reset_index(drop=True)
+    if end_ts is not None:
+        out = out[out["timestamp"] <= end_ts].reset_index(drop=True)
+    return out
+
+
+def _add_venue(
+    engine: BacktestEngine,
+    venue: Venue,
+    *,
+    settle_currency,
+    capital: Decimal,
+    leverage: float,
+    book_type=None,
+) -> None:
+    kwargs = dict(
+        venue=venue,
+        oms_type=OmsType.NETTING,
+        account_type=AccountType.MARGIN,
+        base_currency=settle_currency,
+        starting_balances=[Money(capital, settle_currency)],
+        default_leverage=Decimal(str(leverage)),
+    )
+    if book_type is not None:
+        kwargs["book_type"] = book_type
+    engine.add_venue(**kwargs)
+
+
+def _base_strategy_kwargs(cfg: RunConfig, instrument_id, start_ts) -> dict:
+    """Strategy-config fields every execution mode must supply."""
+    start_ts = _to_utc_ts(start_ts)
+    return {
+        "instrument_id": instrument_id,
+        "capital": cfg.capital,
+        "leverage": cfg.leverage,
+        "backtest_start_date": start_ts.strftime("%Y-%m-%d"),
+        "active_from": start_ts.isoformat(),
+        **cfg.strategy_params,
+    }
+
+
+def _register_stats(engine: BacktestEngine, cfg: RunConfig, instrument) -> None:
+    analyzer = engine.portfolio.analyzer
+    analyzer.register_statistic(CalmarRatio())
+    analyzer.register_statistic(AnnualizedReturn())
+    run_params = {
+        "pair": cfg.symbol,
+        "exchange": cfg.exchange,
+        "interval": cfg.interval,
+        "capital": f"${cfg.capital}",
+        "leverage": f"{cfg.leverage}x",
+        "maker_fee": f"{float(instrument.maker_fee):.7f}%",
+        "taker_fee": f"{float(instrument.taker_fee):.7f}%",
+        "slippage_ticks": f"{cfg.slippage_ticks}",
+        "strategy": cfg.strategy_name,
+    }
+    analyzer.register_statistic(RunConfigStatistic(**run_params))
+
+
+def _collect_result(
+    engine: BacktestEngine, strategy, job_id: str, t0: float
+) -> BacktestResult:
+    """Extract stats, reports and objectives from a finished engine."""
+    stats_pnls = engine.portfolio.analyzer.get_performance_stats_pnls()
+    stats_returns = engine.portfolio.analyzer.get_performance_stats_returns()
+    stats_general = engine.portfolio.analyzer.get_performance_stats_general()
+    all_stats = {**stats_pnls, **stats_returns, **stats_general}
+
+    positions_df = engine.trader.generate_positions_report()
+    fills_df = engine.trader.generate_fills_report()
+
+    # Van Tharp SQN over per-trade returns of closed positions
+    sqn = None
+    if len(positions_df) and "realized_return" in positions_df.columns:
+        closed = positions_df
+        if "ts_closed" in closed.columns:
+            closed = closed[closed["ts_closed"].notna()]
+        rets = pd.to_numeric(closed["realized_return"], errors="coerce").dropna()
+        sqn = system_quality_number(rets.tolist())
+
+    # Extract optimisation objectives
+    pnl = stats_pnls.get("PnL (total)")
+    sharpe = stats_returns.get("Sharpe Ratio (252 days)")
+    num_trades = len(positions_df)
+
+    # Funding side-channel (typed tracker on SBTStrategy subclasses)
+    funding_tracker = getattr(strategy, "funding", None)
+    funding_pnl = (
+        float(funding_tracker.total_paid) if funding_tracker is not None else 0.0
+    )
+
+    return BacktestResult(
+        job_id=job_id,
+        status=JobStatus.DONE,
+        sharpe_ratio=float(sharpe) if sharpe is not None else None,
+        num_trades=num_trades,
+        pnl=float(pnl) if pnl is not None else None,
+        sqn=sqn,
+        stats=all_stats,
+        funding_pnl=funding_pnl,
+        duration_seconds=time.monotonic() - t0,
+        **_spill_artifacts(job_id, positions_df, fills_df),
+    )
+
+
 def load_bars(
     df: pd.DataFrame, bar_type: BarType, instrument=None
 ) -> list[Bar]:
@@ -305,8 +470,24 @@ class BacktestRunner:
         # (e.g. {"in_sample": engine, "out_of_sample": engine}).
         self.window_engines: dict[str, BacktestEngine] = {}
 
-    def run(self, job_id: str = "standalone") -> BacktestResult:
+    def run(
+        self,
+        job_id: str = "standalone",
+        bars: pd.DataFrame | None = None,
+        funding: pd.DataFrame | None = None,
+    ) -> BacktestResult:
         """Execute the backtest and return a structured result.
+
+        Data enters through an explicit-frame seam so the runner can run
+        headless (tests, notebooks) without touching the filesystem:
+
+        * ``bars=None`` (default) resolves OHLCV data via the feather
+          naming convention, exactly as before.
+        * An explicit ``bars`` frame is used **as-is** — the caller owns
+          content, slicing and warm-up; no file is read.
+        * An explicit ``funding`` frame is sliced to each window's bounds
+          and injected into the engine. Explicit bars without a funding
+          frame run without funding instead of searching the disk.
 
         A configured runner plugin (flat ``train_val_split`` field today)
         expands the job into windows; each window runs through the normal
@@ -314,56 +495,36 @@ class BacktestRunner:
         """
         plugin = resolve_runner_plugin(self.config)
         if plugin is not None:
-            return self._run_windows(job_id, plugin)
-        return self._run_window(job_id, start=self.config.start, end=self.config.end)
+            return self._run_windows(job_id, plugin, bars=bars, funding=funding)
+        return self._run_window(
+            job_id, self.config.start, self.config.end, bars=bars, funding=funding
+        )
 
     # ------------------------------------------------------------------
     # Windowed execution (runner plugins)
     # ------------------------------------------------------------------
 
-    def _run_windows(self, job_id: str, plugin: RunnerPlugin) -> BacktestResult:
+    def _run_windows(
+        self,
+        job_id: str,
+        plugin: RunnerPlugin,
+        bars: pd.DataFrame | None = None,
+        funding: pd.DataFrame | None = None,
+    ) -> BacktestResult:
         cfg = self.config
 
-        df: pd.DataFrame | None = None
-        if cfg.data_type != "l2":
-            feather_path = cfg.feather_path or find_feather(
-                cfg.exchange,
-                cfg.symbol,
-                cfg.interval,
-                search_dirs=[cfg.data_dir, "."],
-                start=cfg.start,
-                end=cfg.end,
+        df = bars
+        if df is None and cfg.data_type != "l2":
+            df, err = _discover_bars(
+                cfg, _to_utc_ts(cfg.start), _to_utc_ts(cfg.end)
             )
-            if not feather_path:
-                return BacktestResult(
-                    job_id=job_id,
-                    status=JobStatus.FAILED,
-                    error=f"No feather data found for {cfg.symbol} ({cfg.interval})",
-                )
-            print(f"Loading data from {feather_path}...")
-            try:
-                df = pd.read_feather(feather_path)[
-                    ["timestamp", "open", "high", "low", "close", "volume"]
-                ]
-            except FileNotFoundError:
-                return BacktestResult(
-                    job_id=job_id,
-                    status=JobStatus.FAILED,
-                    error=f"Feather file '{feather_path}' not found.",
-                )
-
-            df = df[df["timestamp"] >= _to_utc_ts(cfg.start)].reset_index(drop=True)
-            if cfg.end:
-                df = df[df["timestamp"] <= _to_utc_ts(cfg.end)].reset_index(drop=True)
+            if err:
+                return _fail(job_id, err)
 
         try:
             windows: dict[str, Window] = plugin.expand(cfg, df)
         except ValueError as e:
-            return BacktestResult(
-                job_id=job_id,
-                status=JobStatus.FAILED,
-                error=str(e),
-            )
+            return _fail(job_id, str(e))
 
         self.window_engines = {}
         results: dict[str, BacktestResult] = {}
@@ -371,10 +532,10 @@ class BacktestRunner:
             print(f"\n--- {win.label} window: {win.start} -> {win.end} ---")
             res = self._run_window(
                 f"{job_id}:{key}",
-                start=win.start,
-                end=win.end,
-                df=win.df,
-                pre_sliced=True,
+                win.start,
+                win.end,
+                bars=win.df,
+                funding=funding,
             )
             results[key] = res
             if res.status != JobStatus.DONE:
@@ -394,15 +555,15 @@ class BacktestRunner:
         job_id: str,
         start: str | pd.Timestamp,
         end: str | pd.Timestamp | None,
-        df: pd.DataFrame | None = None,
-        pre_sliced: bool = False,
+        bars: pd.DataFrame | None = None,
+        funding: pd.DataFrame | None = None,
     ) -> BacktestResult:
         """Execute one backtest over the [start, end] window.
 
-        *df* may carry a preloaded OHLCV frame (split mode); with
-        ``pre_sliced=True`` the frame is trusted to include any warm-up
-        bars ahead of *start* (trading gates via strategy ``active_from``),
-        so only the upper bound is applied here.
+        ``bars`` carries an OHLCV frame; when supplied it is trusted
+        as-is (runner-plugin windows arrive pre-sliced with any warm-up
+        bars ahead of *start*, trading gated via strategy ``active_from``).
+        When ``None``, the feather convention resolves the frame.
         """
         t0 = time.monotonic()
         cfg = self.config
@@ -425,20 +586,17 @@ class BacktestRunner:
                 elif avail:
                     inst_id_str = avail[0]
                 else:
-                    return BacktestResult(
-                        job_id=job_id,
-                        status=JobStatus.FAILED,
-                        error=f"No L2 instruments found in catalog '{cfg.data_dir}'",
+                    return _fail(
+                        job_id,
+                        f"No L2 instruments found in catalog '{cfg.data_dir}'",
                     )
 
             print(f"Loading L2 instrument '{inst_id_str}' from {cfg.data_dir}...")
             try:
                 instrument = load_l2_instrument(inst_id_str, catalog_dir=cfg.data_dir)
             except Exception as e:
-                return BacktestResult(
-                    job_id=job_id,
-                    status=JobStatus.FAILED,
-                    error=f"Failed loading L2 instrument {inst_id_str}: {e}",
+                return _fail(
+                    job_id, f"Failed loading L2 instrument {inst_id_str}: {e}"
                 )
 
             venue = instrument.id.venue
@@ -446,17 +604,16 @@ class BacktestRunner:
             engine = BacktestEngine(config=BacktestEngineConfig())
             self.engine = engine
 
-            settle_currency = instrument.settlement_currency or _CURRENCY_MAP.get(
-                cfg.settle_currency, Currency(cfg.settle_currency, 2, 0, cfg.settle_currency, 0)
+            settle_currency = (
+                instrument.settlement_currency
+                or _resolve_currency(cfg.settle_currency)
             )
-
-            engine.add_venue(
-                venue=venue,
-                oms_type=OmsType.NETTING,
-                account_type=AccountType.MARGIN,
-                base_currency=settle_currency,
-                starting_balances=[Money(cfg.capital, settle_currency)],
-                default_leverage=Decimal(str(cfg.leverage)),
+            _add_venue(
+                engine,
+                venue,
+                settle_currency=settle_currency,
+                capital=cfg.capital,
+                leverage=cfg.leverage,
                 book_type=BookType.L2_MBP,
             )
             engine.add_instrument(instrument)
@@ -484,16 +641,8 @@ class BacktestRunner:
             if trades:
                 engine.add_data(trades)
 
-            # Strategy setup
             StrategyClass, ConfigClass = get_strategy_class(cfg.strategy_name)
-            strategy_kwargs = {
-                "instrument_id": instrument.id,
-                "capital": cfg.capital,
-                "leverage": cfg.leverage,
-                "backtest_start_date": _to_utc_ts(start).strftime("%Y-%m-%d"),
-                "active_from": _to_utc_ts(start).isoformat(),
-                **cfg.strategy_params,
-            }
+            strategy_kwargs = _base_strategy_kwargs(cfg, instrument.id, start)
 
             annotations = getattr(ConfigClass, "__annotations__", {})
             if "bar_type" in annotations or hasattr(ConfigClass, "bar_type"):
@@ -504,10 +653,9 @@ class BacktestRunner:
                         f"Cannot build bar_type for L2 strategy "
                         f"'{cfg.strategy_name}': {e}"
                     ) from e
-                bar_type = BarType.from_str(
+                strategy_kwargs["bar_type"] = BarType.from_str(
                     f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL"
                 )
-                strategy_kwargs["bar_type"] = bar_type
 
             strategy_config = ConfigClass(**strategy_kwargs)
 
@@ -515,103 +663,52 @@ class BacktestRunner:
         # Bar (OHLCV) Execution Mode
         # --------------------------------------------------------------
         else:
-            if df is None:
-                feather_path = cfg.feather_path or find_feather(
-                    cfg.exchange,
-                    cfg.symbol,
-                    cfg.interval,
-                    search_dirs=[cfg.data_dir, "."],
-                    start=cfg.start,
-                    end=cfg.end,
-                )
-                if not feather_path:
-                    return BacktestResult(
-                        job_id=job_id,
-                        status=JobStatus.FAILED,
-                        error=f"No feather data found for {cfg.symbol} ({cfg.interval})",
-                    )
-
-                print(f"Loading data from {feather_path}...")
-                try:
-                    df = pd.read_feather(feather_path)
-                except FileNotFoundError:
-                    return BacktestResult(
-                        job_id=job_id,
-                        status=JobStatus.FAILED,
-                        error=f"Feather file '{feather_path}' not found.",
-                    )
-            else:
-                print("Using preloaded data frame for this window.")
-
-            try:
-                df = df[["timestamp", "open", "high", "low", "close", "volume"]]
-            except KeyError as e:
-                return BacktestResult(
-                    job_id=job_id,
-                    status=JobStatus.FAILED,
-                    error=f"Feather file missing expected columns: {e}",
-                )
-
             window_start = _to_utc_ts(start)
             window_end = _to_utc_ts(end) if end is not None else None
-            if pre_sliced:
-                # Caller sliced the frame (incl. warm-up bars before start);
-                # only trim the upper bound.
-                if window_end is not None:
-                    df = df[df["timestamp"] <= window_end].reset_index(drop=True)
+
+            if bars is None:
+                df, err = _discover_bars(cfg, window_start, window_end)
+                if err:
+                    return _fail(job_id, err)
             else:
-                df = df[df["timestamp"] >= window_start].reset_index(drop=True)
-                if window_end is not None:
-                    df = df[df["timestamp"] <= window_end].reset_index(drop=True)
+                print("Using caller-supplied data frame for this window.")
+                df, err = _select_bars_columns(bars)
+                if err:
+                    return _fail(job_id, err)
 
             if len(df) < 2:
-                return BacktestResult(
-                    job_id=job_id,
-                    status=JobStatus.FAILED,
-                    error=(
-                        f"Not enough bars in [{window_start}, {end}] "
-                        f"({len(df)} rows)."
-                    ),
+                return _fail(
+                    job_id,
+                    f"Not enough bars in [{window_start}, {end}] ({len(df)} rows).",
                 )
 
             ref_price = float(df["close"].iloc[0])
             slippage_bps = cfg.slippage_ticks * cfg.tick_size / ref_price * 10000
             taker_fee = cfg.taker_fee + Decimal(str(slippage_bps)) / Decimal(10000)
 
-            settle_currency = _CURRENCY_MAP.get(cfg.settle_currency)
-            if settle_currency is None:
-                settle_currency = Currency(
-                    cfg.settle_currency, 2, 0, cfg.settle_currency, 0
-                )
-
+            settle_currency = _resolve_currency(cfg.settle_currency)
             interval_nt = parse_interval(cfg.interval)
-            leverage_dec = Decimal(str(cfg.leverage))
             venue = Venue(cfg.exchange)
             self.venue = venue
 
             engine = BacktestEngine(config=BacktestEngineConfig())
             self.engine = engine
 
-            engine.add_venue(
-                venue=venue,
-                oms_type=OmsType.NETTING,
-                account_type=AccountType.MARGIN,
-                base_currency=settle_currency,
-                starting_balances=[Money(cfg.capital, settle_currency)],
-                default_leverage=leverage_dec,
+            _add_venue(
+                engine,
+                venue,
+                settle_currency=settle_currency,
+                capital=cfg.capital,
+                leverage=cfg.leverage,
             )
 
             base_code = cfg.symbol.split("/")[0]
-            base_currency = _CURRENCY_MAP.get(
-                base_code,
-                Currency(base_code, 2, 0, base_code, 0),
-            )
             instrument = make_perpetual(
                 cfg.exchange,
                 cfg.symbol,
                 cfg.maker_fee,
                 taker_fee,
-                base_currency=base_currency,
+                base_currency=_resolve_currency(base_code),
                 settlement_currency=settle_currency,
                 quote_currency=settle_currency,
             )
@@ -622,61 +719,38 @@ class BacktestRunner:
             )
 
             StrategyClass, ConfigClass = get_strategy_class(cfg.strategy_name)
-            strategy_config = ConfigClass(
-                instrument_id=instrument.id,
-                bar_type=bar_type,
-                capital=cfg.capital,
-                leverage=cfg.leverage,
-                backtest_start_date=window_start.strftime("%Y-%m-%d"),
-                active_from=window_start.isoformat(),
-                **cfg.strategy_params,
-            )
+            strategy_kwargs = _base_strategy_kwargs(cfg, instrument.id, window_start)
+            strategy_kwargs["bar_type"] = bar_type
+            strategy_config = ConfigClass(**strategy_kwargs)
 
             print(f"Loaded {len(df)} {cfg.interval} bars (ref_price={ref_price}).")
-            bars = load_bars(df, bar_type, instrument)
-            engine.add_data(bars)
+            bar_updates = load_bars(df, bar_type, instrument)
+            engine.add_data(bar_updates)
 
-            funding_path = find_feather(
-                cfg.exchange,
-                cfg.symbol,
-                "funding",
-                search_dirs=[cfg.data_dir, "."],
-            )
-            if funding_path:
-                print(f"Loading funding data from {funding_path}...")
-                df_funding = pd.read_feather(funding_path)
-                df_funding = df_funding[
-                    df_funding["timestamp"] >= window_start
-                ].reset_index(drop=True)
-                if window_end is not None:
-                    df_funding = df_funding[
-                        df_funding["timestamp"] <= window_end
-                    ].reset_index(drop=True)
-                funding_updates = load_funding_rates(df_funding, instrument.id)
-                engine.add_data(funding_updates)
-                print(f"Loaded {len(funding_updates)} funding rate updates.")
-            else:
-                print(
-                    "No funding rate data found (file pattern: *funding*). Running without funding."
+            # Funding side-channel: injected frame > feather discovery > none.
+            funding_df = None
+            if funding is not None:
+                funding_df = _slice_frame(funding, window_start, window_end)
+            elif bars is None:
+                funding_path = find_feather(
+                    cfg.exchange,
+                    cfg.symbol,
+                    "funding",
+                    search_dirs=[cfg.data_dir, "."],
                 )
+                if funding_path:
+                    print(f"Loading funding data from {funding_path}...")
+                    funding_df = pd.read_feather(funding_path)
+            else:
+                print("Explicit bars without funding frame; running without funding.")
+            if funding_df is not None:
+                funding_updates = load_funding_rates(funding_df, instrument.id)
+                if funding_updates:
+                    engine.add_data(funding_updates)
+                    print(f"Loaded {len(funding_updates)} funding rate updates.")
 
-        # -- Register stats --------------------------------------------
-        engine.portfolio.analyzer.register_statistic(CalmarRatio())
-        engine.portfolio.analyzer.register_statistic(AnnualizedReturn())
-        run_params = {
-            "pair": cfg.symbol,
-            "exchange": cfg.exchange,
-            "interval": cfg.interval,
-            "capital": f"${cfg.capital}",
-            "leverage": f"{cfg.leverage}x",
-            "maker_fee": f"{float(instrument.maker_fee):.7f}%",
-            "taker_fee": f"{float(instrument.taker_fee):.7f}%",
-            "slippage_ticks": f"{cfg.slippage_ticks}",
-            "strategy": cfg.strategy_name,
-        }
-        engine.portfolio.analyzer.register_statistic(RunConfigStatistic(**run_params))
-
-        # -- Run -------------------------------------------------------
+        # -- Shared tail: register stats, run, collect -------------------
+        _register_stats(engine, cfg, instrument)
         strategy = StrategyClass(config=strategy_config)
         self.strategy = strategy
         engine.add_strategy(strategy)
@@ -684,46 +758,4 @@ class BacktestRunner:
         print("Running backtest...")
         engine.run()
 
-        # -- Collect results -------------------------------------------
-        stats_pnls = engine.portfolio.analyzer.get_performance_stats_pnls()
-        stats_returns = engine.portfolio.analyzer.get_performance_stats_returns()
-        stats_general = engine.portfolio.analyzer.get_performance_stats_general()
-        all_stats = {**stats_pnls, **stats_returns, **stats_general}
-
-        positions_df = engine.trader.generate_positions_report()
-        fills_df = engine.trader.generate_fills_report()
-
-        # Van Tharp SQN over per-trade returns of closed positions
-        sqn = None
-        if len(positions_df) and "realized_return" in positions_df.columns:
-            closed = positions_df
-            if "ts_closed" in closed.columns:
-                closed = closed[closed["ts_closed"].notna()]
-            rets = pd.to_numeric(closed["realized_return"], errors="coerce").dropna()
-            sqn = system_quality_number(rets.tolist())
-
-        # Extract optimisation objectives
-        pnl = stats_pnls.get("PnL (total)")
-        sharpe = stats_returns.get("Sharpe Ratio (252 days)")
-        num_trades = len(positions_df)
-
-        # Funding side-channel (typed tracker on SBTStrategy subclasses)
-        funding_tracker = getattr(strategy, "funding", None)
-        funding_pnl = (
-            float(funding_tracker.total_paid) if funding_tracker is not None else 0.0
-        )
-
-        elapsed = time.monotonic() - t0
-
-        return BacktestResult(
-            job_id=job_id,
-            status=JobStatus.DONE,
-            sharpe_ratio=float(sharpe) if sharpe is not None else None,
-            num_trades=num_trades,
-            pnl=float(pnl) if pnl is not None else None,
-            sqn=sqn,
-            stats=all_stats,
-            funding_pnl=funding_pnl,
-            duration_seconds=elapsed,
-            **_spill_artifacts(job_id, positions_df, fills_df),
-        )
+        return _collect_result(engine, strategy, job_id, t0)

@@ -1,0 +1,175 @@
+"""Headless runner tests through the explicit-frame data seam.
+
+These exercise the real engine end-to-end on synthetic bars with zero
+filesystem access: ``pd.read_feather`` is monkeypatched to explode so any
+accidental fall back to feather discovery fails loudly.
+"""
+
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.objects import Quantity
+import pandas as pd
+import pytest
+
+import sbt.core.runner as runner_mod
+from sbt.core.config import RunConfig
+from sbt.core.job import JobStatus
+from sbt.core.runner import (
+    BacktestRunner,
+    _feather_range,
+    _resolve_currency,
+    _slice_frame,
+    load_bars,
+)
+from sbt.strategies.base import SBTStrategy
+from sbt.strategies.ohlc.orb import ORBConfig
+from sbt.utils import make_perpetual
+
+
+@pytest.fixture(autouse=True)
+def no_feather_reads(monkeypatch):
+    def _boom(*args, **kwargs):
+        raise AssertionError("runner attempted a filesystem data read")
+
+    monkeypatch.setattr(pd, "read_feather", _boom)
+
+
+def test_explicit_bars_end_to_end(synthetic_bars, orb_config):
+    result = BacktestRunner(orb_config).run(bars=synthetic_bars)
+
+    assert result.status == JobStatus.DONE, result.error
+    assert result.error is None
+    assert result.num_trades >= 5, "deterministic ramp should produce breakouts"
+    assert isinstance(result.pnl, float)
+    assert result.duration_seconds > 0
+    assert result.stats
+
+
+def test_explicit_bars_with_split(orb_config, make_bars):
+    cfg = RunConfig(
+        **{
+            **orb_config.__dict__,
+            "train_val_split": 0.7,
+            "warmup_bars": 48,
+        }
+    )
+    result = BacktestRunner(cfg).run(bars=make_bars())
+
+    assert result.status == JobStatus.DONE, result.error
+    assert set(result.splits) == {"in_sample", "out_of_sample"}
+    labels = {key: split["label"] for key, split in result.splits.items()}
+    assert labels == {
+        "in_sample": "In-Sample",
+        "out_of_sample": "Out-of-Sample",
+    }
+    # OOS metrics are promoted to the top level.
+    assert result.num_trades == result.splits["out_of_sample"]["num_trades"]
+
+
+def test_injected_funding_reaches_engine(synthetic_bars, orb_config, monkeypatch):
+    """A funding frame provided at run() flows into the engine side-channel.
+
+    A probe strategy subscribes to funding rates and holds a synthetic
+    long, accruing deterministically on every bar while a position is
+    notionally open.
+    """
+
+    class FundingProbe(SBTStrategy):
+        def on_start(self) -> None:
+            super().on_start()
+            self.subscribe_funding_rates(self.instrument_id)
+            self.position_side = OrderSide.BUY
+            self._open_qty = Quantity(1.0, precision=3)
+
+        def on_trading_bar(self, bar) -> None:
+            if self.position_side is not None:
+                self.funding.accrue(
+                    self.position_side,
+                    self._open_qty,
+                    bar.close.as_double(),
+                    0.0001,
+                )
+
+    monkeypatch.setattr(
+        runner_mod, "get_strategy_class", lambda name: (FundingProbe, ORBConfig)
+    )
+
+    funding = pd.DataFrame(
+        {
+            "timestamp": synthetic_bars["timestamp"],
+            "funding_rate": 0.0001,
+        }
+    )
+    result = BacktestRunner(orb_config).run(bars=synthetic_bars, funding=funding)
+
+    assert result.status == JobStatus.DONE, result.error
+    assert result.funding_pnl > 0
+
+
+def test_too_few_bars_fails_cleanly(orb_config, make_bars):
+    tiny = make_bars(days=1).iloc[:1]
+    result = BacktestRunner(orb_config).run(bars=tiny)
+
+    assert result.status == JobStatus.FAILED
+    assert "Not enough bars" in result.error
+
+
+def test_missing_column_fails_cleanly(orb_config, make_bars):
+    bad = make_bars(days=2).drop(columns=["volume"])
+    result = BacktestRunner(orb_config).run(bars=bad)
+
+    assert result.status == JobStatus.FAILED
+    assert "missing expected columns" in result.error
+
+
+def test_l2_mode_still_requires_catalog(orb_config, make_bars):
+    cfg = RunConfig(
+        **{**orb_config.__dict__, "data_type": "l2", "data_dir": "/nonexistent"}
+    )
+    result = BacktestRunner(cfg).run(bars=make_bars(days=2))
+
+    assert result.status == JobStatus.FAILED
+    assert "L2" in result.error
+
+
+# ---------------------------------------------------------------------
+# Pure helper units
+# ---------------------------------------------------------------------
+
+
+def test_feather_range_parsing():
+    assert _feather_range("/x/hyperliquid_BTCUSDT_1h_20240101_20240301.feather") == (
+        pd.Timestamp("2024-01-01", tz="UTC"),
+        pd.Timestamp("2024-03-01 23:59:59", tz="UTC"),
+    )
+    assert _feather_range("/x/unprefixed.feather") is None
+
+
+def test_resolve_currency_known_and_unknown():
+    usdt = _resolve_currency("USDT")
+    assert usdt.code == "USDT"
+    fake = _resolve_currency("FAKE")
+    assert fake.code == "FAKE"
+
+
+def test_slice_frame_bounds(make_bars):
+    df = make_bars(days=3)
+    start = pd.Timestamp("2024-01-02 00:00", tz="UTC")
+    end = pd.Timestamp("2024-01-02 05:00", tz="UTC")
+    out = _slice_frame(df, start, end)
+
+    assert len(out) == 6
+    assert out["timestamp"].iloc[0] == start
+    assert out["timestamp"].iloc[-1] == end
+
+
+def test_load_bars_conversions(make_bars):
+    instrument = make_perpetual("TESTEX", "BTC/USDT:USDT")
+    bar_type = BarType.from_str(f"{instrument.id.value}-1-HOUR-LAST-EXTERNAL")
+    df = make_bars(days=1)
+
+    bars = load_bars(df, bar_type, instrument)
+
+    assert len(bars) == len(df)
+    assert bars[0].close.as_double() == pytest.approx(df["close"].iloc[0], abs=0.06)

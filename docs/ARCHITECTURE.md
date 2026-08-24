@@ -101,23 +101,32 @@ Notable fields: `train_val_split` (float fraction or None),
 
 ### 4.1 Dispatch
 
-`BacktestRunner.run(job_id)`:
+`BacktestRunner.run(job_id, bars=None, funding=None)`:
 1. `resolve_runner_plugin(cfg)` — returns `TrainValSplit(cfg.train_val_split)`
    when set, else None.
 2. With plugin → `_run_windows`: load+filter bar frame once (skipped for
-   L2), `plugin.expand(cfg, df)` → `{key: Window}`, run each window through
-   `_run_window(f"{job_id}:{key}", ..., df=win.df, pre_sliced=True)`;
-   engines collected into `runner.window_engines[key]`; merge via
-   `plugin.combine(...)`, print via `plugin.summarize(...)`.
+   L2 and when explicit `bars` are given), `plugin.expand(cfg, df)` →
+   `{key: Window}`, run each window through
+   `_run_window(f"{job_id}:{key}", ..., bars=win.df)`; engines collected
+   into `runner.window_engines[key]`; merge via `plugin.combine(...)`,
+   print via `plugin.summarize(...)`.
 3. Without plugin → single `_run_window(job_id, cfg.start, cfg.end)`.
    `expand()` raising `ValueError` becomes a FAILED result.
 
+**Data-source seam**: explicit `bars`/`funding` frames bypass all file
+discovery — the frame is used as-is (caller owns slicing/warm-up) and no
+feather is read, so runs are headless and deterministic (this is what the
+`tests/` suite runs on). Explicit bars without a funding frame run without
+funding instead of searching disk. `None` (default) preserves the feather
+convention exactly.
+
 ### 4.2 `_run_window` — bar mode
 
-1. Resolve feather (`cfg.feather_path` or `find_feather`), read frame,
-   require columns `[timestamp, open, high, low, close, volume]`.
-2. Slice to `[start, end]`; with `pre_sliced=True` only the upper bound is
-   applied (caller included warm-up rows below `start`). <2 rows → FAILED.
+1. Frame source: explicit `bars` used as-is; else resolve feather
+   (`cfg.feather_path` or `find_feather`), read, require columns
+   `[timestamp, open, high, low, close, volume]`.
+2. Discovery path slices to `[start, end]`; explicit frames are trusted
+   as-is. <2 rows → FAILED.
 3. Slippage: `slippage_bps = slippage_ticks * tick_size / ref_price * 10000`
    where `ref_price = first close`; effective
    `taker_fee = cfg.taker_fee + Decimal(slippage_bps) / 10000` (fee as a
@@ -131,7 +140,8 @@ Notable fields: `train_val_split` (float fraction or None),
 7. Strategy config built by the runner: always passes
    `instrument_id, bar_type, capital, leverage, backtest_start_date,
    active_from=start.isoformat(), **cfg.strategy_params`.
-8. Funding side-channel: `find_feather(..., "funding")` matches
+8. Funding side-channel: an explicit `funding` frame wins (sliced to the
+   window); else `find_feather(..., "funding")` matches
    `{exchange}_{symbol}_funding_*.feather`; loaded rows become
    `FundingRateUpdate`s (also date-filtered). Missing file just logs.
 9. Register custom stats (`CalmarRatio`, `AnnualizedReturn`,
@@ -264,8 +274,8 @@ within month; requires automatic tracking so month boundaries are known).
 
 `Window` NamedTuple `(label, start, end, df=None)`: `start/end` are the
 TRADING bounds (enforced via strategy `active_from`), while `df` may
-include warm-up rows before `start` (runner trusts it when
-`pre_sliced=True`).
+include warm-up rows before `start` (the runner uses plugin frames
+as-is; slicing is the plugin's job).
 
 `TrainValSplit(fraction)`:
 - `split_ts = first_ts + span * fraction`; IS ends `split_ts - one bar`

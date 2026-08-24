@@ -56,7 +56,7 @@ uv run python3 -m sbt --config config.toml --strategy key_breakout --train-val-s
 
 - `--strategy` defaults to `bitcoin_intraday_momentum` if omitted.
 - `--type funding` ignores `--interval` (no interval param).
-- No tests, linting, typechecking, or CI exist. No verification step to run.
+- Tests: `uv run pytest` — suite in `tests/` runs headless on synthetic bars via the runner's explicit `bars=`/`funding=` seam (no data files needed). No linting, typechecking, or CI exists.
 
 ## Agents
 
@@ -76,6 +76,7 @@ uv run python3 -m sbt --config config.toml --strategy key_breakout --train-val-s
 - **Position sizing**: `risk_percent * current_equity * leverage * plugins.size_multiplier()` (compounding).
 - **FillModel**: removed. Slippage is fee-bps only (see above).
 - **Data files** (`.feather`) auto-detected by `{exchange}_{symbol}_{interval}_*.feather` pattern in `data/` or `./`. Unprefixed files are used only when unique. Multiple matches: best coverage of `[start, end]` wins (then overlap, then newest); chosen file is printed. Funding files matched by `*funding*` in path.
+- **Runner data seam**: `run(bars=…, funding=…)` accepts explicit frames — headless and deterministic, zero disk reads (this is what tests use). Default `None` keeps feather auto-discovery; explicit bars without a funding frame run without funding rather than searching disk.
 - **Tearsheets** saved to `reports/` and auto-opened via `webbrowser` unless `--no-open` (or config `open_report: false`).
 - `data/`, `reports/`, `.worktrees/`, `*.db` are gitignored.
 

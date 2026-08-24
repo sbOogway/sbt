@@ -24,23 +24,21 @@ if __name__ == "__main__":
         print("  (Positive = strategy paid, Negative = strategy received)")
 
     # Report generation (uses engine/venue retained by the runner).
-    # With a train/val split, one tearsheet per window is generated.
+    # With a train/val split, one tearsheet per window is generated;
+    # window titles come from the plugin via result.splits labels.
     from .report import print_report
 
     strat_label = cfg.strategy_name.replace("_", " ").title()
     base_title = f"{strat_label} — {cfg.exchange} {cfg.symbol} {cfg.interval}"
 
     if result.splits and runner.window_engines:
-        window_titles = {
-            "in_sample": f"{base_title} [In-Sample]",
-            "out_of_sample": f"{base_title} [Out-of-Sample]",
-        }
         for key, engine in runner.window_engines.items():
             if key in result.splits:
+                label = result.splits[key].get("label", key)
                 print_report(
                     engine,
                     runner.venue,
-                    title=window_titles.get(key, f"{base_title} [{key}]"),
+                    title=f"{base_title} [{label}]",
                     pair=cfg.symbol,
                     exchange=cfg.exchange,
                     interval=cfg.interval,
