@@ -236,24 +236,24 @@ def cmd_compare(args: argparse.Namespace) -> None:
 def cmd_optimize(args: argparse.Namespace) -> None:
     from ..optimize.study import run_optuna_study
 
-        overrides = {
-            "exchange": args.exchange,
-            "symbol": args.symbol,
-            "interval": args.interval,
-            "leverage": args.leverage,
-            "start": args.start,
-        }
-        if getattr(args, "no_open", False):
-            overrides["open_report"] = False
-        run_optuna_study(
-            config_path=args.config,
-            strategy_name=args.strategy,
-            n_trials=args.trials,
-            params=args.param or [],
-            db_path=args.db,
-            port=args.port,
-            output_report=args.report,
-            objective=args.objective,
-            overrides=overrides,
-            local=getattr(args, "local", False),
-        )
+    overrides = {
+        "exchange": args.exchange,
+        "symbol": args.symbol,
+        "interval": args.interval,
+        "leverage": args.leverage,
+        "start": args.start,
+    }
+    if getattr(args, "no_open", False):
+        overrides["open_report"] = False
+    run_optuna_study(
+        config_path=args.config,
+        strategy_name=args.strategy,
+        n_trials=args.trials,
+        params=args.param or [],
+        db_path=args.db,
+        port=args.port,
+        output_report=args.report,
+        objective=args.objective,
+        overrides=overrides,
+        local=getattr(args, "local", False),
+    )
