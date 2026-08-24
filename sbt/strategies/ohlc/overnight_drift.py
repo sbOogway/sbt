@@ -1,6 +1,5 @@
 import pandas as pd
 
-from nautilus_trader.model.data import FundingRateUpdate
 from nautilus_trader.model.enums import OrderSide
 
 from ...plugins import SBTBarStrategyConfig
@@ -27,22 +26,12 @@ class OvernightDrift(SBTStrategy):
     def __init__(self, config: OvernightDriftConfig) -> None:
         super().__init__(config)
         self.prev_close: float | None = None
-        self._latest_price: float | None = None
-
-    def on_funding_rate(self, funding_rate: FundingRateUpdate) -> None:
-        self.funding.accrue(
-            self.position_side,
-            self._open_qty,
-            self._latest_price,
-            float(funding_rate.rate),
-        )
 
     def on_trading_bar(self, bar) -> None:
         dt_utc = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
         time_str = dt_utc.strftime("%H:%M")
 
         close_price = bar.close.as_double()
-        self._latest_price = close_price
 
         if time_str == self.config.entry_time:
             is_friday = dt_utc.weekday() == 4
@@ -71,7 +60,4 @@ class OvernightDrift(SBTStrategy):
             self.prev_close = close_price
 
         if time_str == self.config.exit_time:
-            self.close_positions()
-
-    def close_positions(self) -> None:
-        self.exit_market()
+            self.exit_market()

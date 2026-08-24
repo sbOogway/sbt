@@ -101,10 +101,6 @@ class GlucksmannStrategy(SBTStrategy):
         self._need_long_entry: bool = False
         self._need_short_entry: bool = False
 
-    @property
-    def _in_position(self) -> bool:
-        return self.position_side is not None
-
     def _calc_qty(self, price: float) -> Quantity | None:
         notional = (
             self.equity() * self.config.leverage * self.vol_multiplier()
@@ -302,7 +298,7 @@ class GlucksmannStrategy(SBTStrategy):
             self._bbw_sma_200.update_raw(bbw)
             self._bbw_stats.update(bbw)
 
-        if self._in_position:
+        if self.in_position:
             if self.position_side == OrderSide.BUY:
                 self._update_long_stops(bar, close)
             else:
@@ -327,12 +323,12 @@ class GlucksmannStrategy(SBTStrategy):
                 self._prev_close <= self._prev_bb_lower and close > self.bb.lower
             )
 
-            if self._in_position and self.position_side == OrderSide.BUY:
+            if self.in_position and self.position_side == OrderSide.BUY:
                 if crossdown_bb_bot and self._vol_ok():
                     self._close_position()
 
             if (
-                not self._in_position
+                not self.in_position
                 and not self._just_closed
                 and self._smas_ready()
                 and self._bbw_sma_200.initialized

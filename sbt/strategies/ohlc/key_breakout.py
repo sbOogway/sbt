@@ -1,5 +1,4 @@
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.objects import Quantity
 
 from ...plugins import SBTBarStrategyConfig
 from ..base import SBTStrategy
@@ -43,21 +42,6 @@ class KeyBreakout(SBTStrategy):
         self._best_price: float | None = None
         self._bars_held: int = 0
 
-    @property
-    def _in_position(self) -> bool:
-        return self.position_side is not None
-
-    def _calc_qty(self, stop_distance: float) -> Quantity | None:
-        if stop_distance <= 0:
-            return None
-        risk_amount = (
-            self.equity()
-            * self.config.leverage
-            * self.config.risk_per_trade
-            * self.vol_multiplier()
-        )
-        return self.sized_quantity(risk_amount / stop_distance)
-
     def _update_atr(self, high: float, low: float, close: float) -> None:
         if self._prev_close is not None:
             tr = max(
@@ -75,7 +59,7 @@ class KeyBreakout(SBTStrategy):
 
     def _enter(self, side: OrderSide, price: float) -> None:
         stop_distance = self.config.atr_stop_multiple * self._atr_value
-        qty = self._calc_qty(stop_distance)
+        qty = self.risk_quantity(stop_distance, self.config.risk_per_trade)
         if not self.enter_market(side, qty):
             return
         self._entry_price = price
@@ -160,14 +144,14 @@ class KeyBreakout(SBTStrategy):
 
         self._update_atr(high, low, close)
 
-        had_position = self._in_position
-        if self._in_position:
+        had_position = self.in_position
+        if self.in_position:
             self._manage_position(high, low)
-        exited_this_bar = had_position and not self._in_position
+        exited_this_bar = had_position and not self.in_position
 
-        if not self._in_position and not exited_this_bar and self._atr_value > 0:
+        if not self.in_position and not exited_this_bar and self._atr_value > 0:
             self._check_setup_entry(high, low, open_, close)
-            if not self._in_position and self.config.enable_swing_breakout:
+            if not self.in_position and self.config.enable_swing_breakout:
                 self._check_swing_entry(close)
 
         self._detect_setup(high, low)

@@ -185,25 +185,32 @@ Bar strategies subclass `SBTStrategy` (`strategies/base.py`); the only
 required override is `on_trading_bar(bar)`.
 
 Lifecycle: `SBTStrategy.on_start` forwards `plugins.on_start` and
-subscribes `config.bar_type`. `on_bar(bar)` records `bar.ts_event`, then
-forwards to plugins, then calls `on_trading_bar(bar)` — **every** bar
-arrives (pre-`active_from` ones too) so indicators/plugins warm up.
+subscribes `config.bar_type`. `on_bar(bar)` records `bar.ts_event` and
+the latest close (`_latest_price`), then forwards to plugins, then calls
+`on_trading_bar(bar)` — **every** bar arrives (pre-`active_from` ones
+too) so indicators/plugins warm up.
 
 Window gating: `trading_active` is False while
 `_current_ts_ns < _active_from_ns` (ISO string on config). Orders go
 through `submit_market(side, qty)`, which is a no-op during warm-up.
 `enter_market/exit_market` maintain `position_side` / `_open_qty`;
-`exit_market` settles funding accrual for the closing position.
+`in_position` reports the tracked state; `exit_market` settles funding
+accrual for the closing position.
 
 Sizing: `equity()` reads the live account total balance each time →
 compounding by construction. Canonical formula used by strategies:
 `notional = equity() * risk_percent * leverage * vol_multiplier()` where
 `vol_multiplier()` = product of sizing-plugin multipliers; quantity =
 `sized_quantity(notional / price)` (rounds to 3dp, None when <= 0).
+Stop-based strategies use the shared `risk_quantity(stop_distance,
+risk_fraction)`: risk amount = equity × leverage × risk_fraction ×
+plugin multiplier, quantity = amount / stop_distance.
 
 `FundingTracker`: signed from holder's perspective — a long paying a
 positive rate accrues cost; `total_paid > 0` means the strategy paid.
-Fed from `on_funding_rate(FundingRateUpdate)` in strategies that opt in.
+The base class implements `on_funding_rate(FundingRateUpdate)` (accrues
+against the open position at `_latest_price`); strategies opt in by
+calling `subscribe_funding_rates(self.instrument_id)` in `on_start`.
 Funding does NOT flow through engine PnL — it is metadata reported as
 `BacktestResult.funding_pnl`.
 

@@ -1,6 +1,5 @@
 import pandas as pd
 
-from nautilus_trader.model.data import FundingRateUpdate
 from nautilus_trader.model.enums import OrderSide
 
 from ...plugins import SBTBarStrategyConfig
@@ -26,26 +25,13 @@ class WeekdaySeasonalityConfig(SBTBarStrategyConfig, kw_only=True, frozen=True):
 
 
 class WeekdaySeasonality(SBTStrategy):
-    def __init__(self, config: WeekdaySeasonalityConfig) -> None:
-        super().__init__(config)
-        self._latest_price: float | None = None
-
     def on_start(self) -> None:
         self.subscribe_funding_rates(self.instrument_id)
         super().on_start()
 
-    def on_funding_rate(self, funding_rate: FundingRateUpdate) -> None:
-        self.funding.accrue(
-            self.position_side,
-            self._open_qty,
-            self._latest_price,
-            float(funding_rate.rate),
-        )
-
     def on_trading_bar(self, bar) -> None:
         dt_utc = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
         close_price = bar.close.as_double()
-        self._latest_price = close_price
 
         if self.position_side is not None:
             self.exit_market()

@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 import pandas as pd
-from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import Bar, FundingRateUpdate
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
@@ -73,6 +73,7 @@ class SBTStrategy(Strategy):
         self.funding = FundingTracker()
         self.position_side: OrderSide | None = None
         self._open_qty: Quantity | None = None
+        self._latest_price: float | None = None
         self._active_from_ns: int | None = _parse_active_from_ns(
             getattr(config, "active_from", None)
         )
@@ -90,11 +91,26 @@ class SBTStrategy(Strategy):
 
     def on_bar(self, bar: Bar) -> None:
         self._current_ts_ns = bar.ts_event
+        self._latest_price = bar.close.as_double()
         self.plugins.on_bar(self, bar)
         self.on_trading_bar(bar)
 
     def on_trading_bar(self, bar: Bar) -> None:
         raise NotImplementedError
+
+    def on_funding_rate(self, funding_rate: FundingRateUpdate) -> None:
+        """Accrue one funding payment against the open position.
+
+        Strategies opt in by subscribing funding rates for their
+        instrument (``subscribe_funding_rates(self.instrument_id)`` in
+        ``on_start``); accrual prices at the latest bar close.
+        """
+        self.funding.accrue(
+            self.position_side,
+            self._open_qty,
+            self._latest_price,
+            float(funding_rate.rate),
+        )
 
     # ------------------------------------------------------------------
     # Trading-window gating
@@ -109,8 +125,13 @@ class SBTStrategy(Strategy):
         )
 
     # ------------------------------------------------------------------
-    # Sizing
+    # Position / sizing
     # ------------------------------------------------------------------
+
+    @property
+    def in_position(self) -> bool:
+        """True while the tracked position is open."""
+        return self.position_side is not None
 
     def equity(self) -> float:
         """Live total account balance in settlement currency (compounds)."""
@@ -129,6 +150,20 @@ class SBTStrategy(Strategy):
         if qty <= 0:
             return None
         return Quantity(qty, precision=3)
+
+    def risk_quantity(
+        self, stop_distance: float, risk_fraction: float
+    ) -> Quantity | None:
+        """Quantity risking ``risk_fraction`` of live equity over the stop."""
+        if stop_distance <= 0:
+            return None
+        risk_amount = (
+            self.equity()
+            * self.config.leverage
+            * risk_fraction
+            * self.plugins.size_multiplier()
+        )
+        return self.sized_quantity(risk_amount / stop_distance)
 
     # ------------------------------------------------------------------
     # Order plumbing

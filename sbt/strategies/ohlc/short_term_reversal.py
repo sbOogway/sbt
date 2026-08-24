@@ -1,4 +1,3 @@
-from nautilus_trader.model.data import FundingRateUpdate
 from nautilus_trader.model.enums import OrderSide
 
 from ...plugins import SBTBarStrategyConfig
@@ -28,24 +27,11 @@ class ShortTermReversal(SBTStrategy):
         super().__init__(config)
         self._returns: list[float] = []
         self._prev_close: float | None = None
-        self._latest_price: float | None = None
         self._bars_held: int = 0
-
-    @property
-    def _in_position(self) -> bool:
-        return self.position_side is not None
 
     def on_start(self) -> None:
         self.subscribe_funding_rates(self.instrument_id)
         super().on_start()
-
-    def on_funding_rate(self, funding_rate: FundingRateUpdate) -> None:
-        self.funding.accrue(
-            self.position_side,
-            self._open_qty,
-            self._latest_price,
-            float(funding_rate.rate),
-        )
 
     def _close_position(self) -> None:
         if self.exit_market():
@@ -53,7 +39,6 @@ class ShortTermReversal(SBTStrategy):
 
     def on_trading_bar(self, bar) -> None:
         close_price = bar.close.as_double()
-        self._latest_price = close_price
 
         if self._prev_close is not None:
             daily_ret = close_price / self._prev_close - 1.0
@@ -63,7 +48,7 @@ class ShortTermReversal(SBTStrategy):
                 scaler.add_return(daily_ret)
         self._prev_close = close_price
 
-        if self._in_position:
+        if self.in_position:
             self._bars_held += 1
             if self._bars_held >= self.config.holding_days:
                 self._close_position()

@@ -2,7 +2,6 @@ from datetime import date
 
 import pandas as pd
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.objects import Quantity
 
 from ...plugins import SBTBarStrategyConfig
 from ..base import SBTStrategy
@@ -46,21 +45,6 @@ class ORBStrategy(SBTStrategy):
         self._entry_price: float | None = None
         self._stop_price: float | None = None
 
-    @property
-    def _in_position(self) -> bool:
-        return self.position_side is not None
-
-    def _calc_qty(self, stop_distance: float) -> Quantity | None:
-        if stop_distance <= 0:
-            return None
-        risk_amount = (
-            self.equity()
-            * self.config.leverage
-            * self.config.risk_per_trade
-            * self.vol_multiplier()
-        )
-        return self.sized_quantity(risk_amount / stop_distance)
-
     def _close_daily_bar(self) -> float | None:
         closed_daily_close = self._daily_close
         if (
@@ -96,7 +80,7 @@ class ORBStrategy(SBTStrategy):
         self._entry_triggered = False
 
     def _start_new_day(self) -> None:
-        if self._in_position:
+        if self.in_position:
             self._close_position()
         self._close_daily_bar()
         self._reset_day()
@@ -131,21 +115,21 @@ class ORBStrategy(SBTStrategy):
         stop_distance = self.config.atr_stop_multiple * self._atr_value
 
         if self._orb_direction == "long" and high >= self._orb_high:
-            qty = self._calc_qty(stop_distance)
+            qty = self.risk_quantity(stop_distance, self.config.risk_per_trade)
             if self.enter_market(OrderSide.BUY, qty):
                 self._entry_price = self._orb_high
                 self._stop_price = self._orb_high - stop_distance
                 self._entry_triggered = True
 
         if self._orb_direction == "short" and low <= self._orb_low:
-            qty = self._calc_qty(stop_distance)
+            qty = self.risk_quantity(stop_distance, self.config.risk_per_trade)
             if self.enter_market(OrderSide.SELL, qty):
                 self._entry_price = self._orb_low
                 self._stop_price = self._orb_low + stop_distance
                 self._entry_triggered = True
 
     def _check_stop(self, bar) -> None:
-        if not self._in_position or self._stop_price is None:
+        if not self.in_position or self._stop_price is None:
             return
         low = bar.low.as_double()
         high = bar.high.as_double()
