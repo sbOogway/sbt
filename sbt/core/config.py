@@ -180,23 +180,27 @@ class RunConfig:
         )
         args = parser.parse_args()
 
+        cli_overrides = {
+            "exchange": args.exchange,
+            "symbol": args.symbol,
+            "interval": args.interval,
+            "leverage": args.leverage,
+            "start": args.start,
+            "end": args.end,
+            "feather": args.feather,
+            "warmup_bars": args.warmup_bars,
+            "data_type": args.data_type,
+            "l2_max_files": args.l2_max_files,
+            "train_val_split": args.train_val_split,
+        }
+        # Only override when the flag is present — a constant here would
+        # clobber `open_report` from the TOML [run] table.
+        if args.no_open:
+            cli_overrides["open_report"] = False
         cfg = cls.from_toml(
             toml_path=args.config,
             strategy_name=args.strategy,
-            cli_overrides={
-                "exchange": args.exchange,
-                "symbol": args.symbol,
-                "interval": args.interval,
-                "leverage": args.leverage,
-                "start": args.start,
-                "end": args.end,
-                "feather": args.feather,
-                "warmup_bars": args.warmup_bars,
-                "data_type": args.data_type,
-                "l2_max_files": args.l2_max_files,
-                "train_val_split": args.train_val_split,
-                "open_report": not args.no_open,
-            },
+            cli_overrides=cli_overrides,
         )
         if args.param:
             overrides = {}
