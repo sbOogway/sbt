@@ -5,10 +5,10 @@ import sqlite3
 from pathlib import Path
 
 from .config import RunConfig
-from .job import BacktestJob, BacktestResult, JobStatus
+from .job import BacktestJob, BacktestResult, JobStatus, result_field_specs
 
 # Bump when introducing new migrations; see ResultStore._migrate().
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 class ResultStore:
@@ -35,7 +35,13 @@ class ResultStore:
     # ------------------------------------------------------------------
 
     def _create_tables(self) -> None:
-        self.conn.executescript("""
+        result_cols = ",\n                ".join(
+            f"{col} {aff}"
+            + (" PRIMARY KEY REFERENCES jobs(id)" if name == "job_id" else "")
+            + (" NOT NULL" if name == "status" else "")
+            for name, col, _kind, aff in result_field_specs()
+        )
+        self.conn.executescript(f"""
             CREATE TABLE IF NOT EXISTS schema_meta (
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -54,20 +60,7 @@ class ResultStore:
             );
 
             CREATE TABLE IF NOT EXISTS results (
-                job_id            TEXT PRIMARY KEY REFERENCES jobs(id),
-                status            TEXT NOT NULL,
-                sharpe_ratio      REAL,
-                num_trades        INTEGER,
-                pnl               REAL,
-                sqn               REAL,
-                stats_json        TEXT,
-                equity_curve_json TEXT,
-                positions_json    TEXT,
-                fills_json        TEXT,
-                tearsheet_path    TEXT,
-                error             TEXT,
-                duration_seconds  REAL DEFAULT 0.0,
-                funding_pnl       REAL DEFAULT 0.0
+                {result_cols}
             );
         """)
         self.conn.commit()
@@ -75,8 +68,13 @@ class ResultStore:
     def _migrate(self) -> None:
         """Versioned, idempotent schema migrations.
 
-        v1 -> v2: jobs.timeout_seconds / jobs.attempts (durability),
-        results.sqn (objective promotion), results artifact spill columns.
+        v1 -> v2: jobs.timeout_seconds / jobs.attempts (durability).
+        v2 -> v3: results columns are derived from the BacktestResult
+        dataclass (``core.job.result_field_specs``); any column a new
+        field introduces is added generically here, so adding a metric
+        needs no hand-written migration. Legacy columns that no longer
+        map to a field (e.g. ``equity_curve_json``, ``tearsheet_path``)
+        are left in place on old databases and simply never written.
         """
         row = self.conn.execute(
             "SELECT value FROM schema_meta WHERE key = 'version'"
@@ -93,14 +91,16 @@ class ResultStore:
                     self.conn.execute(
                         f"ALTER TABLE jobs ADD COLUMN {col} INTEGER NOT NULL DEFAULT {default}"
                     )
-            res_cols = {
-                r[1] for r in self.conn.execute("PRAGMA table_info(results)").fetchall()
-            }
-            if "sqn" not in res_cols:
-                self.conn.execute("ALTER TABLE results ADD COLUMN sqn REAL")
-            for col in ("positions_path", "fills_path", "positions_count", "fills_count"):
+
+        res_cols = {
+            r[1] for r in self.conn.execute("PRAGMA table_info(results)").fetchall()
+        }
+        if res_cols:
+            for _name, col, _kind, aff in result_field_specs():
                 if col not in res_cols:
-                    self.conn.execute(f"ALTER TABLE results ADD COLUMN {col}")
+                    self.conn.execute(
+                        f"ALTER TABLE results ADD COLUMN {col} {aff}"
+                    )
 
         self.conn.execute(
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",
@@ -247,59 +247,44 @@ class ResultStore:
         return [self._row_to_result(r) for r in rows]
 
     def _insert_result(self, result: BacktestResult) -> None:
+        specs = result_field_specs()
+        cols_sql = ", ".join(col for _, col, _, _ in specs)
+        placeholders = ", ".join("?" for _ in specs)
+        values = [self._encode_result_field(result, spec) for spec in specs]
         self.conn.execute(
-            """INSERT OR REPLACE INTO results
-               (job_id, status, sharpe_ratio, num_trades, pnl, sqn,
-                stats_json, positions_json, fills_json,
-                tearsheet_path, error, duration_seconds, funding_pnl,
-                positions_path, fills_path, positions_count, fills_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                result.job_id,
-                result.status.value,
-                result.sharpe_ratio,
-                result.num_trades,
-                result.pnl,
-                result.sqn,
-                json.dumps(result.stats, default=str),
-                json.dumps(result.positions, default=str),
-                json.dumps(result.fills, default=str),
-                result.tearsheet_path,
-                result.error,
-                result.duration_seconds,
-                result.funding_pnl,
-                result.positions_path,
-                result.fills_path,
-                result.positions_count,
-                result.fills_count,
-            ),
+            f"INSERT OR REPLACE INTO results ({cols_sql}) VALUES ({placeholders})",
+            tuple(values),
         )
         self.conn.commit()
 
-    def get_study_results(self, study_name: str) -> list[BacktestResult]:
-        """Fetch all results for jobs belonging to a given Optuna study."""
-        return self.list_results(study_name=study_name)
+    @staticmethod
+    def _encode_result_field(result: BacktestResult, spec) -> object:
+        name, _col, kind, _aff = spec
+        value = getattr(result, name)
+        if kind == "enum":
+            return value.value
+        if kind == "json":
+            return json.dumps(value, default=str)
+        return value
 
     def _row_to_result(self, row: sqlite3.Row) -> BacktestResult:
-        return BacktestResult(
-            job_id=row["job_id"],
-            status=JobStatus(row["status"]),
-            sharpe_ratio=row["sharpe_ratio"],
-            num_trades=row["num_trades"],
-            pnl=row["pnl"],
-            sqn=row["sqn"],
-            stats=json.loads(row["stats_json"] or "{}"),
-            positions=json.loads(row["positions_json"] or "[]"),
-            fills=json.loads(row["fills_json"] or "[]"),
-            tearsheet_path=row["tearsheet_path"],
-            error=row["error"],
-            duration_seconds=row["duration_seconds"] or 0.0,
-            funding_pnl=row["funding_pnl"] or 0.0,
-            positions_path=row["positions_path"],
-            fills_path=row["fills_path"],
-            positions_count=row["positions_count"],
-            fills_count=row["fills_count"],
-        )
+        kwargs: dict = {}
+        for name, col, kind, _aff in result_field_specs():
+            raw = row[col]
+            if raw is None or name == "job_id":
+                continue
+            if kind == "enum":
+                kwargs[name] = JobStatus(raw)
+            elif kind == "json":
+                # Empty/NULL -> leave absent so the dataclass default
+                # ({} or [] per annotation) applies.
+                if raw:
+                    kwargs[name] = json.loads(raw)
+            else:
+                kwargs[name] = raw
+        kwargs["job_id"] = row["job_id"]
+        kwargs.setdefault("status", JobStatus.DONE)
+        return BacktestResult(**kwargs)
 
     # ------------------------------------------------------------------
     # Cleanup

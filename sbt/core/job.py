@@ -1,9 +1,11 @@
 """Job and result models for the backtest scheduler."""
 
 import datetime
+import dataclasses
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import get_args, get_origin, get_type_hints, Union
 
 from .config import RunConfig
 
@@ -75,9 +77,14 @@ class BacktestJob:
 class BacktestResult:
     """Structured output of a single backtest run.
 
-    The three optimisation objectives (sharpe_ratio, num_trades, pnl)
+    The optimisation objectives (sharpe_ratio, num_trades, pnl, sqn)
     are promoted to top-level fields for Optuna multi-objective studies.
     The full engine stats dict is kept in *stats* for reporting.
+
+    Serialization is fields-derived (same contract as ``RunConfig``):
+    :meth:`to_dict` / :meth:`from_dict` walk ``dataclasses.fields`` and
+    coerce the annotated types — adding a metric field never requires
+    touching the codec, the results DDL, or the row mappers.
     """
 
     job_id: str
@@ -91,7 +98,6 @@ class BacktestResult:
     stats: dict = field(default_factory=dict)
     positions: list[dict] = field(default_factory=list)
     fills: list[dict] = field(default_factory=list)
-    tearsheet_path: str | None = None
     error: str | None = None
     duration_seconds: float = 0.0
     funding_pnl: float = 0.0
@@ -108,47 +114,54 @@ class BacktestResult:
 
     def to_dict(self) -> dict:
         """Convert BacktestResult to a JSON-serializable dictionary."""
-        return {
-            "job_id": self.job_id,
-            "status": self.status.value,
-            "sharpe_ratio": self.sharpe_ratio,
-            "num_trades": self.num_trades,
-            "pnl": self.pnl,
-            "sqn": self.sqn,
-            "stats": self.stats,
-            "positions": self.positions,
-            "fills": self.fills,
-            "tearsheet_path": self.tearsheet_path,
-            "error": self.error,
-            "duration_seconds": self.duration_seconds,
-            "funding_pnl": self.funding_pnl,
-            "splits": self.splits,
-            "positions_path": self.positions_path,
-            "fills_path": self.fills_path,
-            "positions_count": self.positions_count,
-            "fills_count": self.fills_count,
-        }
+        hints = get_type_hints(type(self))
+        out = {}
+        for f in dataclasses.fields(self):
+            value = getattr(self, f.name)
+            if hints[f.name] is JobStatus:
+                value = value.value
+            out[f.name] = value
+        return out
 
     @classmethod
     def from_dict(cls, d: dict) -> BacktestResult:
         """Reconstruct BacktestResult from a dictionary."""
-        return cls(
-            job_id=d["job_id"],
-            status=JobStatus(d.get("status", "done")),
-            sharpe_ratio=d.get("sharpe_ratio"),
-            num_trades=d.get("num_trades"),
-            pnl=d.get("pnl"),
-            sqn=d.get("sqn"),
-            stats=d.get("stats", {}),
-            positions=d.get("positions", []),
-            fills=d.get("fills", []),
-            tearsheet_path=d.get("tearsheet_path"),
-            error=d.get("error"),
-            duration_seconds=d.get("duration_seconds", 0.0),
-            funding_pnl=d.get("funding_pnl", 0.0),
-            splits=d.get("splits", {}),
-            positions_path=d.get("positions_path"),
-            fills_path=d.get("fills_path"),
-            positions_count=d.get("positions_count"),
-            fills_count=d.get("fills_count"),
-        )
+        hints = get_type_hints(cls)
+        kwargs: dict = {"job_id": d["job_id"]}
+        for f in dataclasses.fields(cls):
+            if f.name == "job_id" or f.name not in d or d[f.name] is None:
+                continue
+            tp = hints[f.name]
+            kwargs[f.name] = JobStatus(d[f.name]) if tp is JobStatus else d[f.name]
+        kwargs.setdefault("status", JobStatus.DONE)
+        return cls(**kwargs)
+
+
+def result_field_specs() -> list[tuple[str, str, str, str]]:
+    """Storage layout derived from :class:`BacktestResult` fields.
+
+    Yields ``(field_name, column_name, kind, affinity)`` where kind is
+    ``"enum"``/``"json"``/``"scalar"`` and affinity is the SQLite type.
+    dict/list fields persist as ``<name>_json`` TEXT columns; scalars get
+    one queryable column each. This is the single source of truth shared
+    by the DDL, migrations, insert, and row decode in ``core.db``.
+    """
+    hints = get_type_hints(BacktestResult)
+    specs = []
+    for f in dataclasses.fields(BacktestResult):
+        name = f.name
+        tp = hints[name]
+        origin = get_origin(tp)
+        if tp is JobStatus:
+            specs.append((name, name, "enum", "TEXT"))
+            continue
+        if tp in (dict, list) or origin in (dict, list):
+            specs.append((name, f"{name}_json", "json", "TEXT"))
+            continue
+        if origin is Union:
+            args = [a for a in get_args(tp) if a is not type(None)]
+            if len(args) == 1:
+                tp = args[0]
+        affinity = {float: "REAL", int: "INTEGER", str: "TEXT"}.get(tp, "TEXT")
+        specs.append((name, name, "scalar", affinity))
+    return specs
