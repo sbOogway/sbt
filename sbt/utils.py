@@ -34,6 +34,16 @@ _STRATEGY_REGISTRY = {
         "OvernightDrift",
         "OvernightDriftConfig",
     ),
+    "short_term_reversal": (
+        "strategies.ohlc.short_term_reversal",
+        "ShortTermReversal",
+        "ShortTermReversalConfig",
+    ),
+    "weekday_seasonality": (
+        "strategies.ohlc.weekday_seasonality",
+        "WeekdaySeasonality",
+        "WeekdaySeasonalityConfig",
+    ),
     # L2 order book strategies (sbt/strategies/l2/)
     "l2_order_imbalance": (
         "strategies.l2.order_imbalance",
