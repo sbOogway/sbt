@@ -6,11 +6,31 @@ entries/exits with equity-fraction sizing. Subclasses implement
 ``_compute_signal`` and declare their own thresholds on their Config.
 """
 
+import math
 from decimal import Decimal
 
 from nautilus_trader.model.data import OrderBookDelta, OrderBookDeltas
 from nautilus_trader.model.enums import BookAction, BookType, OrderSide
 from nautilus_trader.trading.strategy import Strategy
+
+
+def clamped_dt_s(ts_event: int, last_ts: int | None, cap_s: float = 60.0) -> float:
+    """Seconds since ``last_ts``, clamped to [0, cap] (no last_ts -> 0)."""
+    if last_ts is None:
+        return 0.0
+    return min(max((ts_event - last_ts) / 1e9, 0.0), cap_s)
+
+
+def ewma_alpha(dt_s: float, half_life_s: float) -> float:
+    """Per-step EWMA smoothing weight for exponential decay (half-life).
+
+    1.0 snaps the average to the latest observation (first step or
+    non-positive half-life); otherwise the classic
+    ``1 - exp(-ln(2) * dt / half_life)``.
+    """
+    if half_life_s <= 0.0 or dt_s <= 0.0:
+        return 1.0
+    return 1.0 - math.exp(-math.log(2.0) * dt_s / half_life_s)
 
 
 class L2EventStrategy(Strategy):
@@ -54,11 +74,19 @@ class L2EventStrategy(Strategy):
             book.clear()
         self._on_order_event(delta, price, size)
         ts_event = int(delta.ts_event)
-        if (
+        if self._sample_due(ts_event):
+            self._check_signal(ts_event)
+
+    def _sample_due(self, ts_event: int) -> bool:
+        """Sampling-grid hook: True when a signal evaluation is due.
+
+        Default is the fixed time grid (``signal_interval_ms``);
+        subclasses may override for e.g. event-count sampling.
+        """
+        return (
             self._last_sample_ts is None
             or ts_event - self._last_sample_ts >= self._interval_ns
-        ):
-            self._check_signal(ts_event)
+        )
 
     def _on_order_event(
         self, delta: OrderBookDelta, price: float, size: float

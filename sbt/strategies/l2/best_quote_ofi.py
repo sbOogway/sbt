@@ -8,13 +8,11 @@ the paper documents a linear relation dP ~ OFI / D. Traded by
 thresholding the normalized flow.
 """
 
-import math
-
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.enums import BookAction, OrderSide
 
 from ...plugins import SBTStrategyConfig
-from .base import L2EventStrategy
+from .base import L2EventStrategy, clamped_dt_s, ewma_alpha
 
 
 class L2BestQuoteOFIConfig(SBTStrategyConfig, kw_only=True, frozen=True):
@@ -103,22 +101,11 @@ class L2BestQuoteOFI(L2EventStrategy):
                 e = q_prev - q_new
         self._ofi_window += e
 
-    @staticmethod
-    def _alpha(dt_s: float, half_life_s: float) -> float:
-        if half_life_s <= 0.0 or dt_s <= 0.0:
-            return 1.0
-        return 1.0 - math.exp(-math.log(2.0) * dt_s / half_life_s)
-
     def _compute_signal(self, ts_event: int) -> float | None:
         if self._best_bid is None or self._best_ask is None:
             return None
-        dt_s = (
-            (ts_event - self._last_sample_ts) / 1e9
-            if self._last_sample_ts is not None
-            else 0.0
-        )
-        dt_s = min(max(dt_s, 0.0), 60.0)
-        alpha = self._alpha(dt_s, self.config.ofi_half_life_ms / 1000.0)
+        dt_s = clamped_dt_s(ts_event, self._last_sample_ts)
+        alpha = ewma_alpha(dt_s, self.config.ofi_half_life_ms / 1000.0)
         self._ofi_ewma += alpha * (self._ofi_window - self._ofi_ewma)
         if self._depth_n > 0:
             window_depth = self._depth_sum / self._depth_n

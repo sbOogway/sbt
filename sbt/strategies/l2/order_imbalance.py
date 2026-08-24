@@ -14,21 +14,18 @@ Signals follow the order-flow imbalance literature:
   microstructure information; spread acts as a liquidity gate.
 """
 
-import math
-from decimal import Decimal
-
-from nautilus_trader.model.data import OrderBookDelta, OrderBookDeltas, TradeTick
-from nautilus_trader.model.enums import AggressorSide, BookAction, BookType, OrderSide
-from nautilus_trader.trading.strategy import Strategy
+from nautilus_trader.model.data import OrderBookDelta, TradeTick
+from nautilus_trader.model.enums import AggressorSide, BookAction, OrderSide
 
 from ...plugins import SBTStrategyConfig
+from .base import L2EventStrategy, clamped_dt_s, ewma_alpha
 
 
 class L2OrderImbalanceConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     """Configuration for L2 Order Book Imbalance Strategy."""
 
     # Composite entry threshold applied to the blended signal z.
-    imbalance_threshold: float = 0.6
+    entry_threshold: float = 0.6
     # Legacy event-count sampling, used only when signal_interval_ms <= 0.
     cooldown_events: int = 50
     # Fraction of current account equity (times leverage) traded as notional
@@ -64,21 +61,22 @@ class L2OrderImbalanceConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     max_spread_bps: float = 5.0
 
 
-class L2OrderImbalance(Strategy):
-    """Exploits short-term microstructural order book depth and flow imbalance."""
+class L2OrderImbalance(L2EventStrategy):
+    """Exploits short-term microstructural order book depth and flow imbalance.
+
+    Blends four components into one composite signal: static top-of-book
+    depth imbalance, CKS best-quote OFI, multi-level OFI, and signed trade
+    flow — each EWMA-smoothed between sampling snapshots.
+    """
+
+    needs_trade_ticks = True
 
     def __init__(self, config: L2OrderImbalanceConfig) -> None:
         super().__init__(config)
-        self.instrument_id = config.instrument_id
-        self._bids: dict[float, float] = {}  # price -> size
-        self._asks: dict[float, float] = {}  # price -> size
         self._events_since_trade: int = 0
-        self._last_side: OrderSide | None = None
-        self._entry_ts: int | None = None
 
         self._best_bid: tuple[float, float] | None = None
         self._best_ask: tuple[float, float] | None = None
-        self._last_sample_ts: int | None = None
 
         # Window accumulators (raw sums since the previous signal evaluation)
         # are smoothed into these EWMAs on the sampling grid.
@@ -105,63 +103,20 @@ class L2OrderImbalance(Strategy):
         )
         self._weight_sum = sum(w for w in weights if w and w > 0)
         self._use_flow = self._weight_sum > 0
-        self._interval_ns = (
-            config.signal_interval_ms * 1_000_000
-            if config.signal_interval_ms > 0
-            else 0
-        )
 
-    def on_start(self) -> None:
-        self.subscribe_order_book_deltas(
-            self.instrument_id,
-            book_type=BookType.L2_MBP,
-        )
-        self.subscribe_trade_ticks(self.instrument_id)
-
-    def on_order_book_deltas(self, deltas: OrderBookDeltas) -> None:
-        """Maintain top of book depth and flow accumulators from deltas."""
-        for delta in deltas.deltas:
-            self._process_delta(delta)
-
-    def _process_delta(self, delta: OrderBookDelta) -> None:
-        if delta.order is None:
-            return
-
-        price = float(delta.order.price)
-        size = float(delta.order.size)
-        side = delta.order.side
-        action = delta.action
-        is_bid = side == OrderSide.BUY
-
-        book = self._bids if is_bid else self._asks
-
-        if action == BookAction.ADD or action == BookAction.UPDATE:
-            book[price] = size
-        elif action == BookAction.DELETE:
-            book.pop(price, None)
-        elif action == BookAction.CLEAR:
-            book.clear()
-
-        ts_event = int(delta.ts_event)
-        if self._use_flow:
-            self._update_best(is_bid, price, action, ts_event)
-
+    def _sample_due(self, ts_event: int) -> bool:
         self._events_since_trade += 1
         if self._interval_ns > 0:
-            if (
-                self._last_sample_ts is None
-                or ts_event - self._last_sample_ts >= self._interval_ns
-            ):
-                self._check_signal(ts_event)
-        elif self._events_since_trade >= self.config.cooldown_events:
-            self._check_signal(ts_event)
+            return super()._sample_due(ts_event)
+        return self._events_since_trade >= self.config.cooldown_events
 
-    def _update_best(
-        self, is_bid: bool, price: float, action: BookAction, ts_event: int
+    def _on_order_event(
+        self, delta: OrderBookDelta, price: float, size: float
     ) -> None:
         """Track the best quote and accumulate its event flow (CKS)."""
+        is_bid = delta.order.side == OrderSide.BUY
         book = self._bids if is_bid else self._asks
-        prev = self._best_bid if is_bid else self._best_ask
+        action = delta.action
 
         def rescan() -> tuple[float, float] | None:
             if not book:
@@ -169,6 +124,7 @@ class L2OrderImbalance(Strategy):
             px = max(book) if is_bid else min(book)
             return (px, book[px])
 
+        prev = self._best_bid if is_bid else self._best_ask
         new_best: tuple[float, float] | None
         if action == BookAction.CLEAR:
             new_best = rescan()
@@ -229,25 +185,6 @@ class L2OrderImbalance(Strategy):
         self._tf_signed_window += signed
         self._tf_abs_window += abs(signed)
 
-    @staticmethod
-    def _dt_s(ts_event: int, last_ts: int | None) -> float:
-        if last_ts is None:
-            return 0.0
-        return min(max((ts_event - last_ts) / 1e9, 0.0), 60.0)
-
-    @staticmethod
-    def _alpha(dt_s: float, half_life_s: float) -> float:
-        if half_life_s <= 0.0:
-            return 1.0
-        if dt_s <= 0.0:
-            return 1.0
-        return 1.0 - math.exp(-math.log(2.0) * dt_s / half_life_s)
-
-    def _top_sizes(self, book: dict[float, float], n: int, is_bid: bool) -> list[float]:
-        if is_bid:
-            return sorted(book.values(), reverse=True)[:n]
-        return sorted(book.values())[:n]
-
     def _imbalance(self) -> float | None:
         bid_vol = sum(self._top_sizes(self._bids, self.config.top_levels, True))
         ask_vol = sum(self._top_sizes(self._asks, self.config.top_levels, False))
@@ -272,8 +209,8 @@ class L2OrderImbalance(Strategy):
             raw += w * ((b - pb) - (a - pa))
             denom += w * (b + a)
         if self._ml_window is not None:
-            dt_s = self._dt_s(ts_event, self._ml_last_ts)
-            alpha = self._alpha(dt_s, self.config.ml_ofi_half_life_ms / 1000.0)
+            dt_s = clamped_dt_s(ts_event, self._ml_last_ts)
+            alpha = ewma_alpha(dt_s, self.config.ml_ofi_half_life_ms / 1000.0)
             self._ml_ewma += alpha * (self._ml_window - self._ml_ewma)
         self._ml_window = raw
         self._ml_last_ts = ts_event
@@ -296,8 +233,8 @@ class L2OrderImbalance(Strategy):
                 if self._ofi_depth_n > 0
                 else 0.0
             )
-            dt_s = self._dt_s(ts_event, self._last_sample_ts)
-            a_ofi = self._alpha(dt_s, cfg.ofi_half_life_ms / 1000.0)
+            dt_s = clamped_dt_s(ts_event, self._last_sample_ts)
+            a_ofi = ewma_alpha(dt_s, cfg.ofi_half_life_ms / 1000.0)
             self._ofi_ewma += a_ofi * (window_ofi - self._ofi_ewma)
             if window_depth > 0:
                 self._ofi_depth_ewma += a_ofi * (window_depth - self._ofi_depth_ewma)
@@ -314,8 +251,8 @@ class L2OrderImbalance(Strategy):
             z += cfg.ml_ofi_weight * self._multi_level_flow(ts_event, top_bids, top_asks)
 
         if cfg.trade_flow_weight > 0:
-            dt_s = self._dt_s(ts_event, self._last_sample_ts)
-            a_tf = self._alpha(dt_s, cfg.trade_half_life_ms / 1000.0)
+            dt_s = clamped_dt_s(ts_event, self._last_sample_ts)
+            a_tf = ewma_alpha(dt_s, cfg.trade_half_life_ms / 1000.0)
             self._tf_signed_ewma += a_tf * (self._tf_signed_window - self._tf_signed_ewma)
             self._tf_abs_ewma += a_tf * (self._tf_abs_window - self._tf_abs_ewma)
             self._tf_signed_window = 0.0
@@ -325,127 +262,11 @@ class L2OrderImbalance(Strategy):
 
         return z / self._weight_sum
 
-    def _check_signal(self, ts_event: int) -> None:
-        if not self._bids or not self._asks:
-            return
-
+    def _compute_signal(self, ts_event: int) -> float | None:
         if self._use_flow:
-            signal = self._composite_signal(ts_event)
-        else:
-            signal = self._imbalance()
-        if signal is None:
-            return
-        self._last_sample_ts = ts_event
-
-        # Time stop
-        if (
-            self.config.max_hold_seconds > 0
-            and self._entry_ts is not None
-            and ts_event - self._entry_ts > self.config.max_hold_seconds * 1_000_000_000
-        ):
-            self._flatten()
-            return
-
-        # Hysteresis exit: decay against the position beyond exit_threshold.
-        if self.config.exit_threshold > 0.0:
-            if self._last_side == OrderSide.BUY and signal < self.config.exit_threshold:
-                self._flatten()
-                return
-            if self._last_side == OrderSide.SELL and signal > -self.config.exit_threshold:
-                self._flatten()
-                return
-
-        # Spread gate: block fresh entries while crossing the book is costly.
-        if self._last_side is None and self.config.max_spread_bps > 0.0:
-            spread = self._spread_bps()
-            if spread is not None and spread > self.config.max_spread_bps:
-                return
-
-        # Strong net demand dominance -> Long
-        if signal > self.config.imbalance_threshold:
-            if self._last_side != OrderSide.BUY:
-                self._submit_market(OrderSide.BUY)
-                self._last_side = OrderSide.BUY
-                self._entry_ts = ts_event
-        # Strong net supply dominance -> Short
-        elif signal < -self.config.imbalance_threshold:
-            if self._last_side != OrderSide.SELL:
-                self._submit_market(OrderSide.SELL)
-                self._last_side = OrderSide.SELL
-                self._entry_ts = ts_event
-
-    def _spread_bps(self) -> float | None:
-        bb = self._best_bid
-        ba = self._best_ask
-        if bb is None or ba is None:
-            mid_from_book = self._mid_price()
-            if mid_from_book is None:
-                return None
-            bid_px = max(self._bids)
-            ask_px = min(self._asks)
-            mid = mid_from_book
-        else:
-            bid_px, ask_px = bb[0], ba[0]
-            mid = (bid_px + ask_px) / 2.0
-        if mid <= 0:
-            return None
-        return (ask_px - bid_px) / mid * 10000.0
+            return self._composite_signal(ts_event)
+        return self._imbalance()
 
     def _flatten(self) -> None:
-        open_positions = self.cache.positions(
-            venue=self.instrument_id.venue,
-            instrument_id=self.instrument_id,
-        )
-        position = next((p for p in open_positions if p.is_open), None)
-        if position is None or position.quantity.as_double() <= 0:
-            self._last_side = None
-            self._entry_ts = None
-            self._events_since_trade = 0
-            return
-
-        close_side = OrderSide.SELL if position.is_long else OrderSide.BUY
-        self._submit_market(close_side, quantity=position.quantity)
-        self._last_side = None
-        self._entry_ts = None
+        super()._flatten()
         self._events_since_trade = 0
-
-    def _submit_market(
-        self, order_side: OrderSide, quantity=None
-    ) -> None:
-        instrument = self.cache.instrument(self.instrument_id)
-        ref_price = self._mid_price()
-        if ref_price is None:
-            return
-
-        if quantity is None:
-            notional = (
-                self._equity(instrument)
-                * self.config.leverage
-                * self.config.capital_fraction
-            )
-            quantity = instrument.make_qty(Decimal(str(notional / ref_price)))
-            if quantity.as_double() <= 0:
-                quantity = instrument.size_increment
-
-        if quantity.as_double() <= 0:
-            return
-
-        order = self.order_factory.market(
-            instrument_id=self.instrument_id,
-            order_side=order_side,
-            quantity=quantity,
-        )
-        self.submit_order(order)
-
-    def _mid_price(self) -> float | None:
-        if not self._bids or not self._asks:
-            return None
-        return (max(self._bids) + min(self._asks)) / 2
-
-    def _equity(self, instrument) -> float:
-        account = self.portfolio.account(self.instrument_id.venue)
-        if account is not None:
-            money = account.balance_total(instrument.quote_currency)
-            if money is not None:
-                return float(money)
-        return float(self.config.capital)

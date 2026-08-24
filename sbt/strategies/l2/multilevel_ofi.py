@@ -9,10 +9,8 @@ level weights (a shrinkage stand-in for ridge), EWMA-smoothed across
 sampling windows and normalized by weighted depth.
 """
 
-import math
-
 from ...plugins import SBTStrategyConfig
-from .base import L2EventStrategy
+from .base import L2EventStrategy, clamped_dt_s, ewma_alpha
 
 
 class L2MultilevelOFIConfig(SBTStrategyConfig, kw_only=True, frozen=True):
@@ -90,11 +88,9 @@ class L2MultilevelOFI(L2EventStrategy):
             if ca is not None:
                 denom += w * ca[1]
         if self._ml_window is not None and self._ml_last_ts is not None:
-            dt_s = min(max((ts_event - self._ml_last_ts) / 1e9, 0.0), 60.0)
+            dt_s = clamped_dt_s(ts_event, self._ml_last_ts)
             hl = self.config.ml_ofi_half_life_ms / 1000.0
-            alpha = 1.0 if hl <= 0 or dt_s <= 0 else 1.0 - math.exp(
-                -math.log(2.0) * dt_s / hl
-            )
+            alpha = ewma_alpha(dt_s, hl)
             self._ml_ewma += alpha * (self._ml_window - self._ml_ewma)
         self._ml_window = raw
         self._ml_last_ts = ts_event
