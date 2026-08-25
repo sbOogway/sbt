@@ -10,10 +10,14 @@ Modular crypto perpetual futures backtesting framework built on [Nautilus Trader
 # 1. Install dependencies
 uv sync
 
-# 2. Download historical market data
+# 2. Set up git hooks (required for worktree auto-symlinking)
+pre-commit install --hook-type post-checkout
+git config core.mainRepo "$(pwd)"
+
+# 3. Download historical market data
 uv run python3 -m sbt.data --exchange binance --symbol BTC/USDT --interval 5m --start 2024-01-01 --type ohlcv
 
-# 3. Run a direct single backtest
+# 4. Run a direct single backtest
 uv run python3 -m sbt --config config.toml --strategy overnight_drift
 ```
 

@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: worktree-symlinks
+        name: Symlink sbt.db and data/ in worktrees
+        entry: hooks/post-checkout-symlinks.sh
+        language: unsupported_script
+        stages: [post-checkout]
+        always_run: true
