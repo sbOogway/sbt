@@ -56,6 +56,46 @@ def list_results_for_dashboard(conn: sqlite3.Connection) -> list[dict]:
     return results
 
 
+def _find_tearsheet(reports_dir: Path, tearsheet_id: str) -> str | None:
+    """Return the tearsheet filename if it exists, else None."""
+    name = f"tearsheet_{tearsheet_id}.html"
+    if (reports_dir / name).exists():
+        return name
+    return None
+
+
+def _find_tearsheet_by_job(
+    reports_dir: Path, submitted_at: str
+) -> str | None:
+    """Fallback: scan reports dir for a tearsheet matching the job timestamp.
+
+    When ``run_id`` is NULL (stale row from before the run_id feature),
+    the UUID-based filename is lost.  This scans for tearsheets whose
+    mtime falls within ±5 minutes of the job's ``submitted_at`` and
+    returns the closest match.  Returns ``None`` when no match is found.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    try:
+        job_ts = datetime.fromisoformat(submitted_at)
+    except (ValueError, TypeError):
+        return None
+    if job_ts.tzinfo is None:
+        job_ts = job_ts.replace(tzinfo=timezone.utc)
+
+    candidates: list[tuple[float, str]] = []
+    for f in reports_dir.glob("tearsheet_*.html"):
+        mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc)
+        diff = abs((mtime - job_ts).total_seconds())
+        if diff <= 300:  # ±5 minutes
+            candidates.append((diff, f.name))
+
+    if not candidates:
+        return None
+    candidates.sort()
+    return candidates[0][1]
+
+
 def get_result_detail(
     conn: sqlite3.Connection,
     job_id: str,
@@ -84,9 +124,11 @@ def get_result_detail(
     fills = json.loads(fills_raw) if fills_raw else []
 
     tearsheet_id = row["run_id"] or row["job_id"]
-    has_tearsheet = False
+    tearsheet_file = None
     if reports_dir is not None:
-        has_tearsheet = (reports_dir / f"tearsheet_{tearsheet_id}.html").exists()
+        tearsheet_file = _find_tearsheet(reports_dir, tearsheet_id)
+        if tearsheet_file is None and not row["run_id"]:
+            tearsheet_file = _find_tearsheet_by_job(reports_dir, row["submitted_at"])
 
     return {
         "job_id": row["job_id"],
@@ -107,7 +149,8 @@ def get_result_detail(
         "stats": stats,
         "positions": positions,
         "fills": fills,
-        "has_tearsheet": has_tearsheet,
+        "has_tearsheet": tearsheet_file is not None,
+        "tearsheet_file": tearsheet_file,
     }
 
 

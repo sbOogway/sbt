@@ -86,7 +86,7 @@
 
   <div>
     {% if result.has_tearsheet %}
-    <iframe src="/reports/tearsheet_{{ result.display_id }}.html" class="tearsheet-frame"></iframe>
+    <iframe src="/reports/{{ result.tearsheet_file }}" class="tearsheet-frame"></iframe>
     {% else %}
     <div class="placeholder">
       <p style="font-size:1.1rem;margin-bottom:0.5rem;">Tearsheet not available</p>
