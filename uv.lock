@@ -188,10 +188,8 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "pre-commit", specifier = ">=3.2" },
-    
     { name = "httpx2", specifier = ">=0.28.0" },
     { name = "pytest", specifier = ">=9.1.1" },
-,
 ]
 
 [[package]]
