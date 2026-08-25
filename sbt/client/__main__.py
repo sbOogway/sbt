@@ -112,6 +112,7 @@ def main():
     sub_opt.add_argument("--interval", help="Override interval")
     sub_opt.add_argument("--leverage", help="Override leverage")
     sub_opt.add_argument("--start", help="Override start date")
+    sub_opt.add_argument("--end", help="Override end date")
     sub_opt.add_argument(
         "--local",
         action="store_true",

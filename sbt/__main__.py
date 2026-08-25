@@ -10,7 +10,7 @@ from .core.runner import BacktestRunner
 
 if __name__ == "__main__":
     cfg = RunConfig.parse_cli()
-    runner = BacktestRunner(cfg)
+    runner = BacktestRunner(cfg, db_path="sbt.db")
     result = runner.run()
 
     if result.error:

@@ -44,6 +44,21 @@ _STRATEGY_REGISTRY = {
         "WeekdaySeasonality",
         "WeekdaySeasonalityConfig",
     ),
+    "dual_sma_crossover": (
+        "strategies.ohlc.dual_sma_crossover",
+        "DualSmaCrossover",
+        "DualSmaCrossoverConfig",
+    ),
+    "bollinger_squeeze": (
+        "strategies.ohlc.bollinger_squeeze",
+        "BollingerSqueeze",
+        "BollingerSqueezeConfig",
+    ),
+    "rsi_trend": (
+        "strategies.ohlc.rsi_trend",
+        "RsiTrend",
+        "RsiTrendConfig",
+    ),
     # L2 order book strategies (sbt/strategies/l2/)
     "l2_order_imbalance": (
         "strategies.l2.order_imbalance",

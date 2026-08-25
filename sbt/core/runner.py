@@ -398,8 +398,10 @@ class BacktestRunner:
     generation.
     """
 
-    def __init__(self, config: RunConfig) -> None:
+    def __init__(self, config: RunConfig, db_path: str | None = None) -> None:
         self.config = config
+        self._db_path = db_path
+        self._result_store = None
         self.engine: BacktestEngine | None = None
         self.venue: Venue | None = None
         self.strategy = None
@@ -432,10 +434,23 @@ class BacktestRunner:
         """
         plugin = resolve_runner_plugin(self.config)
         if plugin is not None:
-            return self._run_windows(job_id, plugin, bars=bars, funding=funding)
-        return self._run_window(
-            job_id, self.config.start, self.config.end, bars=bars, funding=funding
-        )
+            result = self._run_windows(job_id, plugin, bars=bars, funding=funding)
+        else:
+            result = self._run_window(
+                job_id, self.config.start, self.config.end, bars=bars, funding=funding
+            )
+        self._persist_result(result)
+        return result
+
+    def _persist_result(self, result: BacktestResult) -> None:
+        """Write BacktestResult to the results table when db_path is set."""
+        if not self._db_path:
+            return
+        from .db import ResultStore
+
+        if self._result_store is None:
+            self._result_store = ResultStore(self._db_path)
+        self._result_store._insert_result(result)
 
     # ------------------------------------------------------------------
     # Windowed execution (runner plugins)
