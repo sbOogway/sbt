@@ -5,6 +5,8 @@ Usage::
     uv run python3 -m sbt --config config.toml --strategy overnight_drift
 """
 
+from pathlib import Path
+
 from .core.config import RunConfig
 from .core.runner import BacktestRunner
 
@@ -55,3 +57,14 @@ if __name__ == "__main__":
             interval=cfg.interval,
             open_browser=cfg.open_report,
         )
+
+    # Symlink reports/latest.html -> most recent tearsheet
+    run_id = runner.engine.run_id
+    reports = Path("reports")
+    latest = reports / "latest.html"
+    target = f"tearsheet_{run_id}.html"
+    try:
+        latest.unlink(missing_ok=True)
+        latest.symlink_to(target)
+    except OSError:
+        pass
