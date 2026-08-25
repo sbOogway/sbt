@@ -314,9 +314,9 @@ as-is; slicing is the plugin's job).
   split_ts, clamped to range start.
 - With `df=None` (L2 mode) requires explicit `cfg.end`.
 - `combine` promotes OOS metrics to top-level result fields (optimizers
-  therefore validate out-of-sample); per-window metrics live under
-  `result.splits["in_sample" | "out_of_sample"]`; durations summed;
-  positions/fills/stats come from OOS.
+  therefore validate out-of-sample); per-window metrics stored as
+  first-class columns (`in_sample_*` / `out_of_sample_*`); durations
+  summed; positions/fills/stats come from OOS.
 
 ## 7. Server architecture
 
@@ -381,17 +381,24 @@ Tables:
   dataclass (`core.job.result_field_specs`): every scalar field becomes a
   queryable column of the same name (sharpe_ratio, num_trades, pnl, sqn,
   error, duration_seconds, funding_pnl, positions_path, fills_path,
-  positions_count, fills_count); every dict/list field persists as
-  `<name>_json` TEXT (stats_json, positions_json, fills_json,
-  splits_json). Adding a metric field extends DDL, migration, insert and
-  row decode automatically — no hand-written mirrors.
+  positions_count, fills_count, in_sample_sharpe_ratio,
+  in_sample_num_trades, in_sample_pnl, in_sample_sqn,
+  in_sample_funding_pnl, in_sample_duration_seconds,
+  out_of_sample_sharpe_ratio, out_of_sample_num_trades,
+  out_of_sample_pnl, out_of_sample_sqn, out_of_sample_funding_pnl,
+  out_of_sample_duration_seconds); every dict/list field persists as
+  `<name>_json` TEXT (stats_json, positions_json, fills_json). Adding a
+  metric field extends DDL, migration, insert and row decode automatically
+  — no hand-written mirrors.
 - `schema_meta(key PK, value)`
 
 v1→v2 added jobs.timeout_seconds/attempts; v2→v3 derives results columns
 from the dataclass and backfills any missing ones generically (guarded by
 PRAGMA table_info, rerun-safe). Legacy v2 columns with no field
 (`equity_curve_json`, `tearsheet_path`) survive on old databases but are
-never written or read.
+never written or read. v3→v4 replaced the `splits` dict with 12
+first-class `in_sample_*` / `out_of_sample_*` scalar columns; legacy
+`splits_json` survives on old databases but is never written.
 
 Key methods: `save_job` upsert; `update_job_dispatch` (status+worker+
 attempts); `complete_job` writes result + terminal status in ONE

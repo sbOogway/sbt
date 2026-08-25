@@ -2,9 +2,9 @@
 
 Divides the backtest data range at ``split_fraction`` of its span and runs
 the normal execution path once per window. The merged :class:`BacktestResult`
-carries per-window metrics under ``splits`` and promotes the out-of-sample
-metrics to the top-level objective fields, so optimizers validate on unseen
-data.
+promotes out-of-sample metrics to the top-level objective fields (so
+optimizers validate on unseen data) and stores per-window metrics as
+first-class columns (``in_sample_*`` / ``out_of_sample_*``).
 """
 
 import pandas as pd
@@ -116,21 +116,6 @@ class TrainValSplit(RunnerPlugin):
                 error=fail.error if fail else "Missing window result",
             )
 
-        splits = {}
-        for key, res in results.items():
-            win = windows.get(key)
-            splits[key] = {
-                "label": _WINDOW_LABELS.get(key, key),
-                "start": str(win.start) if win else None,
-                "end": str(win.end) if win else None,
-                "sharpe_ratio": res.sharpe_ratio,
-                "num_trades": res.num_trades,
-                "pnl": res.pnl,
-                "sqn": res.sqn,
-                "funding_pnl": res.funding_pnl,
-                "duration_seconds": res.duration_seconds,
-            }
-
         return BacktestResult(
             job_id=job_id,
             status=JobStatus.DONE,
@@ -145,7 +130,19 @@ class TrainValSplit(RunnerPlugin):
             duration_seconds=(is_res.duration_seconds if is_res else 0.0)
             + oos_res.duration_seconds,
             funding_pnl=oos_res.funding_pnl,
-            splits=splits,
+            # Per-window metrics as first-class columns
+            in_sample_sharpe_ratio=is_res.sharpe_ratio if is_res else None,
+            in_sample_num_trades=is_res.num_trades if is_res else None,
+            in_sample_pnl=is_res.pnl if is_res else None,
+            in_sample_sqn=is_res.sqn if is_res else None,
+            in_sample_funding_pnl=is_res.funding_pnl if is_res else None,
+            in_sample_duration_seconds=is_res.duration_seconds if is_res else None,
+            out_of_sample_sharpe_ratio=oos_res.sharpe_ratio,
+            out_of_sample_num_trades=oos_res.num_trades,
+            out_of_sample_pnl=oos_res.pnl,
+            out_of_sample_sqn=oos_res.sqn,
+            out_of_sample_funding_pnl=oos_res.funding_pnl,
+            out_of_sample_duration_seconds=oos_res.duration_seconds,
         )
 
     def summarize(self, results: dict[str, BacktestResult]) -> None:

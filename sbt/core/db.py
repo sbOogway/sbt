@@ -8,7 +8,7 @@ from .config import RunConfig
 from .job import BacktestJob, BacktestResult, JobStatus, result_field_specs
 
 # Bump when introducing new migrations; see ResultStore._migrate().
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 
 class ResultStore:
@@ -72,9 +72,12 @@ class ResultStore:
         v2 -> v3: results columns are derived from the BacktestResult
         dataclass (``core.job.result_field_specs``); any column a new
         field introduces is added generically here, so adding a metric
-        needs no hand-written migration. Legacy columns that no longer
+        field needs no hand-written migration. Legacy columns that no longer
         map to a field (e.g. ``equity_curve_json``, ``tearsheet_path``)
         are left in place on old databases and simply never written.
+        v3 -> v4: splits dict replaced by 12 first-class in_sample_*
+        and out_of_sample_* scalar columns on results. Legacy
+        ``splits_json`` column is left in place on old databases.
         """
         row = self.conn.execute(
             "SELECT value FROM schema_meta WHERE key = 'version'"

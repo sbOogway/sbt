@@ -101,9 +101,20 @@ class BacktestResult:
     error: str | None = None
     duration_seconds: float = 0.0
     funding_pnl: float = 0.0
-    # Per-window metrics when a runner plugin split the job into windows
-    # (e.g. train/val holdout): {"in_sample": {...}, "out_of_sample": {...}}.
-    splits: dict = field(default_factory=dict)
+    # In-sample (train) window metrics — NULL when no runner plugin split.
+    in_sample_sharpe_ratio: float | None = None
+    in_sample_num_trades: int | None = None
+    in_sample_pnl: float | None = None
+    in_sample_sqn: float | None = None
+    in_sample_funding_pnl: float | None = None
+    in_sample_duration_seconds: float | None = None
+    # Out-of-sample (validation) window metrics — NULL when no split.
+    out_of_sample_sharpe_ratio: float | None = None
+    out_of_sample_num_trades: int | None = None
+    out_of_sample_pnl: float | None = None
+    out_of_sample_sqn: float | None = None
+    out_of_sample_funding_pnl: float | None = None
+    out_of_sample_duration_seconds: float | None = None
     # When positions/fills exceed the inline-row budget they are spilled to
     # parquet under reports/artifacts/{job_id}/ and carried by path + count;
     # the inline lists stay empty in that case.

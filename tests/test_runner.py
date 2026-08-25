@@ -56,14 +56,13 @@ def test_explicit_bars_with_split(orb_config, make_bars):
     result = BacktestRunner(cfg).run(bars=make_bars())
 
     assert result.status == JobStatus.DONE, result.error
-    assert set(result.splits) == {"in_sample", "out_of_sample"}
-    labels = {key: split["label"] for key, split in result.splits.items()}
-    assert labels == {
-        "in_sample": "In-Sample",
-        "out_of_sample": "Out-of-Sample",
-    }
+    # Per-window metrics are first-class columns, not NULL.
+    assert result.in_sample_num_trades is not None
+    assert result.out_of_sample_num_trades is not None
+    assert result.in_sample_sharpe_ratio is not None
+    assert result.out_of_sample_sharpe_ratio is not None
     # OOS metrics are promoted to the top level.
-    assert result.num_trades == result.splits["out_of_sample"]["num_trades"]
+    assert result.num_trades == result.out_of_sample_num_trades
 
 
 def test_injected_funding_reaches_engine(synthetic_bars, orb_config, monkeypatch):

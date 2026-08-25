@@ -51,7 +51,7 @@ uv run python3 -m sbt.client optimize --config config.toml --strategy overnight_
 
 # Train/validation holdout split (70% in-sample / 30% out-of-sample)
 # Runs both windows; top-level result metrics = out-of-sample; per-window
-# stats under `splits` and one tearsheet per window.
+# stats as in_sample_* / out_of_sample_* columns and one tearsheet per window.
 uv run python3 -m sbt --config config.toml --strategy key_breakout --train-val-split 0.7
 ```
 
