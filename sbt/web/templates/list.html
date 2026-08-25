@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Results — SBT{% endblock %}
+{% block content %}
+<h1 style="font-size:1.5rem;font-weight:600;margin-bottom:1rem;">Backtest Results</h1>
+<table id="results-table">
+  <thead>
+    <tr>
+      <th onclick="sortTable(0)">Strategy</th>
+      <th onclick="sortTable(1)">Symbol</th>
+      <th onclick="sortTable(2,'num')">Sharpe</th>
+      <th onclick="sortTable(3,'num')">PnL</th>
+      <th onclick="sortTable(4,'num')">Trades</th>
+      <th onclick="sortTable(5,'num')">SQN</th>
+      <th onclick="sortTable(6,'num')">Duration</th>
+      <th onclick="sortTable(7)">Date</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in results %}
+    <tr>
+      <td><a href="/results/{{ r.job_id }}">{{ r.strategy }}</a></td>
+      <td>{{ r.symbol }}</td>
+      <td data-val="{{ r.sharpe or 0 }}">{{ "%.2f"|format(r.sharpe or 0) }}</td>
+      <td data-val="{{ r.pnl or 0 }}" class="{{ 'positive' if (r.pnl or 0) > 0 else 'negative' if (r.pnl or 0) < 0 else '' }}">
+        {% if r.pnl is not none %}${{ "%.2f"|format(r.pnl) }}{% else %}&mdash;{% endif %}
+      </td>
+      <td data-val="{{ r.trades or 0 }}">{{ r.trades or 0 }}</td>
+      <td data-val="{{ r.sqn or 0 }}">{{ "%.2f"|format(r.sqn or 0) }}</td>
+      <td data-val="{{ r.duration or 0 }}">{{ "%.1fs"|format(r.duration or 0) }}</td>
+      <td>{{ r.date }}</td>
+    </tr>
+  {% endfor %}
+  {% if not results %}
+    <tr><td colspan="8" style="text-align:center;padding:2rem;color:#64748b;">No completed backtests found.</td></tr>
+  {% endif %}
+  </tbody>
+</table>
+
+<script>
+function sortTable(col, type) {
+  const table = document.getElementById('results-table');
+  const tbody = table.tBodies[0];
+  const rows = Array.from(tbody.rows);
+  const dir = table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
+  table.dataset.sortDir = dir;
+  rows.sort((a, b) => {
+    let av = type === 'num' ? parseFloat(a.cells[col].dataset.val) : a.cells[col].textContent.trim();
+    let bv = type === 'num' ? parseFloat(b.cells[col].dataset.val) : b.cells[col].textContent.trim();
+    if (type !== 'num') { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+}
+</script>
+{% endblock %}
