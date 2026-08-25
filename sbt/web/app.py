@@ -119,6 +119,10 @@ def create_app(
     reports_dir: str | Path = "reports",
 ) -> FastAPI:
     """Build the FastAPI application wired to a specific DB and reports dir."""
+    from sbt.core.db import ResultStore
+
+    ResultStore(db_path).close()
+
     app = FastAPI(title="SBT Results")
     templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
     _db_path = str(db_path)
