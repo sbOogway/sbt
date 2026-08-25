@@ -212,8 +212,8 @@ def main() -> None:
     df.to_feather(output)
     healed = actual_range_name(output, df["timestamp"].min(), df["timestamp"].max())
     if healed is not None and healed != output.name:
-        output.rename(output.with_name(healed))
-        print(f"Renamed {output.name} -> {healed} to match the actual data range")
+        output = output.rename(output.with_name(healed))
+        print(f"Renamed to {output.name} to match the actual data range")
     print(f"Saved {len(df)} rows to {output}")
     print(f"Date range: {df['timestamp'].min()} -> {df['timestamp'].max()}")
 

@@ -105,7 +105,6 @@ class L2OrderImbalance(L2EventStrategy):
         self._use_flow = self._weight_sum > 0
 
     def _sample_due(self, ts_event: int) -> bool:
-        self._events_since_trade += 1
         if self._interval_ns > 0:
             return super()._sample_due(ts_event)
         return self._events_since_trade >= self.config.cooldown_events
@@ -114,6 +113,7 @@ class L2OrderImbalance(L2EventStrategy):
         self, delta: OrderBookDelta, price: float, size: float
     ) -> None:
         """Track the best quote and accumulate its event flow (CKS)."""
+        self._events_since_trade += 1
         is_bid = delta.order.side == OrderSide.BUY
         book = self._bids if is_bid else self._asks
         action = delta.action

@@ -5,7 +5,7 @@ import dataclasses
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import get_args, get_origin, get_type_hints, Union
+from typing import NamedTuple, get_args, get_origin, get_type_hints, Union
 
 from .config import RunConfig
 
@@ -148,31 +148,41 @@ class BacktestResult:
         return cls(**kwargs)
 
 
-def result_field_specs() -> list[tuple[str, str, str, str]]:
+class FieldSpec(NamedTuple):
+    """One column in the results table, derived from a BacktestResult field."""
+
+    name: str
+    column: str
+    kind: str  # "enum" | "json" | "scalar"
+    affinity: str  # SQLite type: "TEXT", "REAL", "INTEGER"
+
+
+def result_field_specs() -> list[FieldSpec]:
     """Storage layout derived from :class:`BacktestResult` fields.
 
-    Yields ``(field_name, column_name, kind, affinity)`` where kind is
-    ``"enum"``/``"json"``/``"scalar"`` and affinity is the SQLite type.
-    dict/list fields persist as ``<name>_json`` TEXT columns; scalars get
-    one queryable column each. This is the single source of truth shared
-    by the DDL, migrations, insert, and row decode in ``core.db``.
+    Yields :class:`FieldSpec` tuples — (field_name, column_name, kind,
+    affinity) where kind is ``"enum"``/``"json"``/``"scalar"`` and affinity
+    is the SQLite type. dict/list fields persist as ``<name>_json`` TEXT
+    columns; scalars get one queryable column each. This is the single
+    source of truth shared by the DDL, migrations, insert, and row decode
+    in ``core.db``.
     """
     hints = get_type_hints(BacktestResult)
-    specs = []
+    specs: list[FieldSpec] = []
     for f in dataclasses.fields(BacktestResult):
         name = f.name
         tp = hints[name]
         origin = get_origin(tp)
         if tp is JobStatus:
-            specs.append((name, name, "enum", "TEXT"))
+            specs.append(FieldSpec(name, name, "enum", "TEXT"))
             continue
         if tp in (dict, list) or origin in (dict, list):
-            specs.append((name, f"{name}_json", "json", "TEXT"))
+            specs.append(FieldSpec(name, f"{name}_json", "json", "TEXT"))
             continue
         if origin is Union:
             args = [a for a in get_args(tp) if a is not type(None)]
             if len(args) == 1:
                 tp = args[0]
         affinity = {float: "REAL", int: "INTEGER", str: "TEXT"}.get(tp, "TEXT")
-        specs.append((name, name, "scalar", affinity))
+        specs.append(FieldSpec(name, name, "scalar", affinity))
     return specs
