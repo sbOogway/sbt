@@ -44,6 +44,28 @@ class TestResultStoreRoundTrip:
         assert got.duration_seconds == pytest.approx(99.9)
         assert got.funding_pnl == pytest.approx(-12.34)
 
+    def test_run_id_round_trip(self, store):
+        result = _make_result(run_id="abc-123")
+        store._insert_result(result)
+        got = store.get_result("test-001")
+        assert got is not None
+        assert got.run_id == "abc-123"
+
+    def test_run_id_none_round_trip(self, store):
+        result = _make_result()
+        store._insert_result(result)
+        got = store.get_result("test-001")
+        assert got is not None
+        assert got.run_id is None
+
+    def test_run_id_used_as_job_id(self, store):
+        result = _make_result(job_id="run-uuid-456", run_id="run-uuid-456")
+        store._insert_result(result)
+        got = store.get_result("run-uuid-456")
+        assert got is not None
+        assert got.job_id == "run-uuid-456"
+        assert got.run_id == "run-uuid-456"
+
     def test_is_oos_fields_round_trip(self, store):
         result = _make_result(
             in_sample_sharpe_ratio=1.2,
@@ -113,11 +135,11 @@ class TestResultStoreRoundTrip:
 
 
 class TestSchemaMigration:
-    def test_schema_version_is_4(self, store):
+    def test_schema_version_is_5(self, store):
         row = store.conn.execute(
             "SELECT value FROM schema_meta WHERE key = 'version'"
         ).fetchone()
-        assert int(row["value"]) == 4
+        assert int(row["value"]) == 5
 
     def test_new_columns_exist(self, store):
         cols = {r[1] for r in store.conn.execute("PRAGMA table_info(results)").fetchall()}
@@ -125,6 +147,7 @@ class TestSchemaMigration:
         assert "out_of_sample_num_trades" in cols
         assert "in_sample_funding_pnl" in cols
         assert "out_of_sample_duration_seconds" in cols
+        assert "run_id" in cols
 
     def test_legacy_splits_json_column_survives(self, store):
         """Old databases keep splits_json; the column should still exist."""

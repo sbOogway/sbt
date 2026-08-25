@@ -29,6 +29,14 @@ plugins. Anchors are `file.py` + symbol names. Mechanics live in
   and merges their results (`expand`/`combine`/`summarize`).
 - **Window** — one execution slice `(label, start, end, df)`; `df` may
   include warm-up rows ahead of the trading start.
+- **Results dashboard** — lightweight web UI (`sbt.web`) for browsing
+  completed backtest results and viewing tearsheets. Reads from `sbt.db`
+  (SQLite), serves existing tearsheet HTML via iframe. Launched via
+  `python -m sbt.web`.
+- **Tearsheet** — self-contained HTML report generated after a backtest
+  run, combining a nautilus equity-curve chart, TradingView price chart
+  with position markers, and tabular stats/positions/fills. Stored at
+  `reports/tearsheet_{run_id}.html`.
 - **Feather file convention** — the naming contract for data files:
   `{exchange}_{symbol}_{tag}_{YYYYMMDD}[_{YYYYMMDD}].feather`, where
   *tag* is the bar interval (OHLCV) or `funding` (funding rates).

@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ result.strategy }} — {{ result.display_id }}{% endblock %}
+{% block content %}
+<div class="detail-header">
+  <h1>{{ result.strategy }}</h1>
+  <div class="meta">{{ result.exchange }} {{ result.symbol }} {{ result.interval }} &middot; {{ result.date }} &middot; {{ result.display_id }}</div>
+</div>
+
+<div class="detail-layout">
+  <div>
+    <div class="metric-grid" style="grid-template-columns:1fr;">
+      <div class="metric-card">
+        <div class="label">Sharpe Ratio</div>
+        <div class="value {% if (result.sharpe or 0) > 0 %}positive{% elif (result.sharpe or 0) < 0 %}negative{% endif %}">{{ "%.2f"|format(result.sharpe or 0) }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Net PnL</div>
+        <div class="value {% if (result.pnl or 0) > 0 %}positive{% elif (result.pnl or 0) < 0 %}negative{% endif %}">{% if result.pnl is not none %}${{ "%.2f"|format(result.pnl) }}{% else %}&mdash;{% endif %}</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Total Trades</div>
+        <div class="value">{{ result.trades or 0 }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">SQN</div>
+        <div class="value">{{ "%.2f"|format(result.sqn or 0) }}</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Funding PnL</div>
+        <div class="value">{% if result.funding_pnl is not none %}${{ "%.2f"|format(result.funding_pnl) }}{% else %}&mdash;{% endif %}</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">Duration</div>
+        <div class="value">{{ "%.1fs"|format(result.duration or 0) }}</div>
+      </div>
+    </div>
+
+    {% if result.stats %}
+    <details style="margin-top:1rem;">
+      <summary style="cursor:pointer;font-weight:600;font-size:0.9rem;color:#475569;">Full Statistics</summary>
+      <table style="margin-top:0.5rem;">
+        <tbody>
+        {% for key, val in result.stats.items()|sort %}
+          <tr>
+            <td style="font-weight:500;">{{ key }}</td>
+            <td>{% if val is number %}{{ "%.4f"|format(val) }}{% else %}{{ val }}{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+
+    {% if result.positions %}
+    <details style="margin-top:1rem;">
+      <summary style="cursor:pointer;font-weight:600;font-size:0.9rem;color:#475569;">Positions ({{ result.positions|length }})</summary>
+      <div style="max-height:400px;overflow:auto;margin-top:0.5rem;">
+      <table>
+        <thead><tr>{% for key in result.positions[0].keys() %}<th>{{ key }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for pos in result.positions %}
+          <tr>{% for val in pos.values() %}<td>{{ val }}</td>{% endfor %}</tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </details>
+    {% endif %}
+
+    {% if result.fills %}
+    <details style="margin-top:1rem;">
+      <summary style="cursor:pointer;font-weight:600;font-size:0.9rem;color:#475569;">Fills ({{ result.fills|length }})</summary>
+      <div style="max-height:400px;overflow:auto;margin-top:0.5rem;">
+      <table>
+        <thead><tr>{% for key in result.fills[0].keys() %}<th>{{ key }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for fill in result.fills %}
+          <tr>{% for val in fill.values() %}<td>{{ val }}</td>{% endfor %}</tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </details>
+    {% endif %}
+  </div>
+
+  <div>
+    {% if result.has_tearsheet %}
+    <iframe src="/reports/tearsheet_{{ result.display_id }}.html" class="tearsheet-frame"></iframe>
+    {% else %}
+    <div class="placeholder">
+      <p style="font-size:1.1rem;margin-bottom:0.5rem;">Tearsheet not available</p>
+      <p>The report file may have been cleaned up or the job failed before a tearsheet was generated.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

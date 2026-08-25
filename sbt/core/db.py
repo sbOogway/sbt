@@ -8,7 +8,7 @@ from .config import RunConfig
 from .job import BacktestJob, BacktestResult, JobStatus, result_field_specs
 
 # Bump when introducing new migrations; see ResultStore._migrate().
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 
 class ResultStore:
@@ -78,6 +78,7 @@ class ResultStore:
         v3 -> v4: splits dict replaced by 12 first-class in_sample_*
         and out_of_sample_* scalar columns on results. Legacy
         ``splits_json`` column is left in place on old databases.
+        v4 -> v5: results.run_id added (nautilus engine run UUID).
         """
         row = self.conn.execute(
             "SELECT value FROM schema_meta WHERE key = 'version'"

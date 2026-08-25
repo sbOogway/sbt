@@ -89,6 +89,7 @@ class BacktestResult:
 
     job_id: str
     status: JobStatus
+    run_id: str | None = None
     # --- optimisation objectives ---
     sharpe_ratio: float | None = None
     num_trades: int | None = None
@@ -122,6 +123,10 @@ class BacktestResult:
     fills_path: str | None = None
     positions_count: int | None = None
     fills_count: int | None = None
+
+    @property
+    def display_id(self) -> str:
+        return self.run_id or self.job_id
 
     def to_dict(self) -> dict:
         """Convert BacktestResult to a JSON-serializable dictionary."""
