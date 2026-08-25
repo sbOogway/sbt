@@ -446,10 +446,17 @@ class BacktestRunner:
         """Write BacktestResult to the results table when db_path is set."""
         if not self._db_path:
             return
+        import json
+
         from .db import ResultStore
 
         if self._result_store is None:
             self._result_store = ResultStore(self._db_path)
+        self._result_store.save_standalone_job(
+            result.job_id,
+            self.config.strategy_name,
+            json.dumps(self.config.to_dict()),
+        )
         self._result_store._insert_result(result)
 
     # ------------------------------------------------------------------

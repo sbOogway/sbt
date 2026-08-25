@@ -136,6 +136,26 @@ class ResultStore:
         )
         self.conn.commit()
 
+    def save_standalone_job(
+        self, job_id: str, strategy_name: str, config_json: str
+    ) -> None:
+        """Insert a minimal job row for runner-level persistence."""
+        from datetime import datetime, timezone
+
+        self.conn.execute(
+            """INSERT OR REPLACE INTO jobs
+               (id, status, strategy_name, config_json, submitted_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                job_id,
+                JobStatus.DONE.value,
+                strategy_name,
+                config_json,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self.conn.commit()
+
     def reconcile_backlog(self) -> list[BacktestJob]:
         """Startup recovery: return unfinished jobs in FIFO order.
 
