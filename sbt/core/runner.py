@@ -302,8 +302,13 @@ def _collect_result(
         float(funding_tracker.total_paid) if funding_tracker is not None else 0.0
     )
 
+    run_id = str(engine.run_id)
+    if job_id == "standalone":
+        job_id = run_id
+
     return BacktestResult(
         job_id=job_id,
+        run_id=run_id,
         status=JobStatus.DONE,
         sharpe_ratio=float(sharpe) if sharpe is not None else None,
         num_trades=num_trades,

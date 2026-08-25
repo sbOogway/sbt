@@ -40,9 +40,10 @@ def _make_job(job_id: str = "abc123", **overrides) -> BacktestJob:
     return BacktestJob(**defaults)
 
 
-def _make_result(job_id: str = "abc123", **overrides) -> BacktestResult:
+def _make_result(job_id: str = "abc123", run_id: str | None = None, **overrides) -> BacktestResult:
     defaults = dict(
         job_id=job_id,
+        run_id=run_id or job_id,
         status=JobStatus.DONE,
         sharpe_ratio=1.5,
         num_trades=42,
@@ -94,7 +95,7 @@ class TestListResultsForDashboard:
 
         rows = list_results_for_dashboard(populated_store.conn)
         row = rows[0]
-        expected_keys = {"job_id", "strategy", "symbol", "sharpe", "pnl", "trades", "sqn", "duration", "date", "status"}
+        expected_keys = {"job_id", "run_id", "display_id", "strategy", "symbol", "sharpe", "pnl", "trades", "sqn", "duration", "date", "status"}
         assert expected_keys == set(row.keys())
 
     def test_values_match_db(self, populated_store):
@@ -170,10 +171,24 @@ class TestGetResultDetail:
         detail = get_result_detail(populated_store.conn, "aaa111", reports_dir=tmp_path)
         assert detail["has_tearsheet"] is False
 
-        # Create a fake tearsheet
+        # Create a fake tearsheet using run_id (which equals job_id here)
         (tmp_path / "tearsheet_aaa111.html").write_text("<html></html>")
         detail = get_result_detail(populated_store.conn, "aaa111", reports_dir=tmp_path)
         assert detail["has_tearsheet"] is True
+
+    def test_tearsheet_uses_run_id_when_different(self, populated_store, tmp_path):
+        from sbt.web.app import get_result_detail
+
+        # Insert a result where run_id differs from job_id
+        populated_store.save_job(_make_job("job999"))
+        populated_store._insert_result(
+            _make_result("job999", run_id="run-xyz-999", sharpe_ratio=1.0, pnl=100.0, num_trades=5, sqn=1.0)
+        )
+        # Tearsheet file named with run_id, not job_id
+        (tmp_path / "tearsheet_run-xyz-999.html").write_text("<html></html>")
+        detail = get_result_detail(populated_store.conn, "job999", reports_dir=tmp_path)
+        assert detail["has_tearsheet"] is True
+        assert detail["run_id"] == "run-xyz-999"
 
 
 # ── HTTP route tests ──────────────────────────────────────────────────

@@ -18,7 +18,7 @@
   <tbody>
   {% for r in results %}
     <tr>
-      <td><a href="/results/{{ r.job_id }}">{{ r.strategy }}</a></td>
+      <td><a href="/results/{{ r.job_id }}">{{ r.strategy }} <span style="color:#94a3b8;font-size:0.8em;">{{ r.display_id[:8] }}</span></a></td>
       <td>{{ r.symbol }}</td>
       <td data-val="{{ r.sharpe or 0 }}">{{ "%.2f"|format(r.sharpe or 0) }}</td>
       <td data-val="{{ r.pnl or 0 }}" class="{{ 'positive' if (r.pnl or 0) > 0 else 'negative' if (r.pnl or 0) < 0 else '' }}">

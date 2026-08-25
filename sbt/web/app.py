@@ -26,7 +26,7 @@ def list_results_for_dashboard(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         """
         SELECT r.job_id, r.status, r.sharpe_ratio, r.pnl, r.num_trades,
-               r.sqn, r.duration_seconds, r.funding_pnl,
+               r.sqn, r.duration_seconds, r.funding_pnl, r.run_id,
                j.strategy_name, j.config_json, j.submitted_at
         FROM results r
         JOIN jobs j ON r.job_id = j.id
@@ -40,6 +40,8 @@ def list_results_for_dashboard(conn: sqlite3.Connection) -> list[dict]:
         results.append(
             {
                 "job_id": row["job_id"],
+                "run_id": row["run_id"],
+                "display_id": row["run_id"] or row["job_id"],
                 "strategy": row["strategy_name"],
                 "symbol": cfg.get("symbol", ""),
                 "sharpe": row["sharpe_ratio"],
@@ -81,12 +83,15 @@ def get_result_detail(
     fills_raw = row["fills_json"]
     fills = json.loads(fills_raw) if fills_raw else []
 
+    tearsheet_id = row["run_id"] or row["job_id"]
     has_tearsheet = False
     if reports_dir is not None:
-        has_tearsheet = (reports_dir / f"tearsheet_{job_id}.html").exists()
+        has_tearsheet = (reports_dir / f"tearsheet_{tearsheet_id}.html").exists()
 
     return {
         "job_id": row["job_id"],
+        "run_id": row["run_id"],
+        "display_id": row["run_id"] or row["job_id"],
         "strategy": row["strategy_name"],
         "exchange": cfg.get("exchange", ""),
         "symbol": cfg.get("symbol", ""),

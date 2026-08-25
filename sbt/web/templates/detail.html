@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ result.strategy }} — {{ result.job_id }}{% endblock %}
+{% block title %}{{ result.strategy }} — {{ result.display_id }}{% endblock %}
 {% block content %}
 <div class="detail-header">
   <h1>{{ result.strategy }}</h1>
-  <div class="meta">{{ result.exchange }} {{ result.symbol }} {{ result.interval }} &middot; {{ result.date }} &middot; {{ result.job_id }}</div>
+  <div class="meta">{{ result.exchange }} {{ result.symbol }} {{ result.interval }} &middot; {{ result.date }} &middot; {{ result.display_id }}</div>
 </div>
 
 <div class="detail-layout">
@@ -86,7 +86,7 @@
 
   <div>
     {% if result.has_tearsheet %}
-    <iframe src="/reports/tearsheet_{{ result.job_id }}.html" class="tearsheet-frame"></iframe>
+    <iframe src="/reports/tearsheet_{{ result.display_id }}.html" class="tearsheet-frame"></iframe>
     {% else %}
     <div class="placeholder">
       <p style="font-size:1.1rem;margin-bottom:0.5rem;">Tearsheet not available</p>
