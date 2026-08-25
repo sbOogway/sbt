@@ -23,7 +23,7 @@ depth=$((depth + 1))
 prefix=""
 for ((i = 0; i < depth; i++)); do prefix="../${prefix}"; done
 
-for target in sbt.db data; do
+for target in sbt.db data reports; do
   if [ -L "$target" ] || [ -e "$target" ]; then continue; fi
   ln -s "${prefix}${target}" "$target"
 done
