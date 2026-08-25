@@ -25,6 +25,8 @@ from sbt.strategies.base import SBTStrategy
 from sbt.strategies.ohlc.orb import ORBConfig
 from sbt.utils import make_perpetual
 
+from tests.conftest import make_synthetic_bars
+
 
 @pytest.fixture(autouse=True)
 def no_feather_reads(monkeypatch):
@@ -171,3 +173,102 @@ def test_load_bars_conversions(make_bars):
 
     assert len(bars) == len(df)
     assert bars[0].close.as_double() == pytest.approx(df["close"].iloc[0], abs=0.06)
+
+
+# ---------------------------------------------------------------------
+# Result persistence via db_path
+# ---------------------------------------------------------------------
+
+
+class TestRunnerPersistence:
+    """BacktestRunner persists BacktestResult when db_path is set."""
+
+    def test_persists_successful_result(self, synthetic_bars, orb_config, tmp_path):
+        db = str(tmp_path / "test.db")
+        result = BacktestRunner(orb_config, db_path=db).run(
+            job_id="persist-001", bars=synthetic_bars
+        )
+
+        assert result.status == JobStatus.DONE
+        from sbt.core.db import ResultStore
+
+        store = ResultStore(db)
+        stored = store.get_result("persist-001")
+        store.close()
+
+        assert stored is not None
+        assert stored.job_id == "persist-001"
+        assert stored.status == JobStatus.DONE
+        assert stored.sharpe_ratio == pytest.approx(result.sharpe_ratio)
+        assert stored.pnl == pytest.approx(result.pnl)
+        assert stored.num_trades == result.num_trades
+
+    def test_persists_failed_result(self, orb_config, tmp_path):
+        db = str(tmp_path / "test.db")
+        tiny = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2024-01-01", tz="UTC")],
+                "open": [100.0],
+                "high": [100.0],
+                "low": [100.0],
+                "close": [100.0],
+                "volume": [1.0],
+            }
+        )
+        result = BacktestRunner(orb_config, db_path=db).run(
+            job_id="fail-001", bars=tiny
+        )
+
+        assert result.status == JobStatus.FAILED
+
+        from sbt.core.db import ResultStore
+
+        store = ResultStore(db)
+        stored = store.get_result("fail-001")
+        store.close()
+
+        assert stored is not None
+        assert stored.status == JobStatus.FAILED
+        assert stored.error is not None
+
+    def test_no_persist_when_db_path_none(self, synthetic_bars, orb_config, tmp_path):
+        db = str(tmp_path / "test.db")
+        result = BacktestRunner(orb_config, db_path=None).run(
+            job_id="no-persist-001", bars=synthetic_bars
+        )
+
+        assert result.status == JobStatus.DONE
+
+        from sbt.core.db import ResultStore
+
+        store = ResultStore(db)
+        stored = store.get_result("no-persist-001")
+        store.close()
+
+        assert stored is None
+
+    def test_persists_with_train_val_split(self, orb_config, tmp_path):
+        db = str(tmp_path / "test.db")
+        cfg = RunConfig(
+            **{
+                **orb_config.__dict__,
+                "train_val_split": 0.7,
+                "warmup_bars": 48,
+            }
+        )
+        result = BacktestRunner(cfg, db_path=db).run(
+            job_id="split-001",
+            bars=make_synthetic_bars(),
+        )
+
+        assert result.status == JobStatus.DONE
+
+        from sbt.core.db import ResultStore
+
+        store = ResultStore(db)
+        stored = store.get_result("split-001")
+        store.close()
+
+        assert stored is not None
+        assert stored.num_trades == result.num_trades
+        assert stored.pnl == pytest.approx(result.pnl)

@@ -44,3 +44,17 @@ plugins. Anchors are `file.py` + symbol names. Mechanics live in
   `parse_range`, discovery/ranking via `find_feather`); a conventional
   filename always states its contents' range — the downloader renames
   on resume (`actual_range_name`) to keep name == content.
+- **BacktestResult** — structured output of a single backtest run;
+  carries optimisation objectives (`sharpe_ratio`, `num_trades`, `pnl`,
+  `sqn`), full engine stats, positions/fills, and funding PnL. Built
+  by `_collect_result()` in `core/runner.py` after `engine.run()`.
+  _Avoid_: run output, backtest output.
+- **ResultStore** — thin SQLite wrapper (`core/db.py`) that persists
+  `BacktestJob` and `BacktestResult` rows. Shared by the scheduler
+  daemon (server path) and the runner (local/CLI path). The same
+  database file doubles as Optuna storage.
+- **Runner-level persistence** — the pattern where `BacktestRunner`
+  owns DB writes via `ResultStore` at the end of `run()`, as opposed
+  to server/scheduler-level persistence. Enabled by passing `db_path`
+  to the runner constructor; omitted in the server path where the
+  scheduler handles it.

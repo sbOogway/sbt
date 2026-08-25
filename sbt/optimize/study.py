@@ -29,6 +29,29 @@ from .report import generate_pareto_report, generate_sqn_report
 _RESULT_POLL_S = 1.0
 
 
+def _spawn_child_target(config: RunConfig, job_id: str, objective: str, db_path: str, queue):
+    """Top-level target for spawn-multiprocessing backtest trials."""
+    try:
+        runner = BacktestRunner(config, db_path=db_path)
+        try:
+            result = runner.run(job_id=job_id)
+        finally:
+            del runner
+            gc.collect()
+        queue.put(
+            {
+                "pnl": result.pnl,
+                "trades": result.num_trades,
+                "sqn": result.sqn if objective == "sqn" else None,
+                "sharpe_ratio": (
+                    result.sharpe_ratio if objective == "sharpe" else None
+                ),
+            }
+        )
+    except BaseException as e:  # noqa: BLE001
+        queue.put({"error": f"{type(e).__name__}: {e}"})
+
+
 class LocalExecutor:
     """Run every trial inline in the current process (original path).
 
@@ -39,11 +62,12 @@ class LocalExecutor:
 
     name = "local"
 
-    def __init__(self, base_config: RunConfig, objective: str, primary_label: str):
+    def __init__(self, base_config: RunConfig, objective: str, primary_label: str, db_path: str = "sbt.db"):
         self.base_config = base_config
         self.objective = objective
         self.primary_label = primary_label
-        self._mp_ctx = multiprocessing.get_context("fork")
+        self.db_path = db_path
+        self._mp_ctx = multiprocessing.get_context("spawn")
 
     @staticmethod
     def _metrics(result, objective: str) -> dict:
@@ -57,7 +81,7 @@ class LocalExecutor:
         }
 
     def _run_inline(self, config: RunConfig, job_id: str) -> dict:
-        runner = BacktestRunner(config)
+        runner = BacktestRunner(config, db_path=self.db_path)
         try:
             result = runner.run(job_id=job_id)
         finally:
@@ -67,14 +91,11 @@ class LocalExecutor:
 
     def _run_forked(self, config: RunConfig, job_id: str) -> dict:
         queue = self._mp_ctx.Queue()
-
-        def child():
-            try:
-                queue.put(self._run_inline(config, job_id))
-            except BaseException as e:  # noqa: BLE001 - forwarded to parent
-                queue.put({"error": f"{type(e).__name__}: {e}"})
-
-        proc = self._mp_ctx.Process(target=child, daemon=True)
+        proc = self._mp_ctx.Process(
+            target=_spawn_child_target,
+            args=(config, job_id, self.objective, self.db_path, queue),
+            daemon=True,
+        )
         proc.start()
         proc.join()
         payload = None
@@ -92,6 +113,12 @@ class LocalExecutor:
             raise RuntimeError(reason)
         return payload
 
+    def _bad_result(self) -> tuple | float:
+        """Return a sentinel that ranks worst on every objective."""
+        if self.objective == "sqn":
+            return float("-inf")
+        return (float("-inf"), 0.0, float("-inf"))
+
     def run(self, study: optuna.Study, param_space: dict, n_trials: int) -> None:
         def objective_fn(trial: optuna.Trial):
             params = suggest_params(trial, param_space)
@@ -104,15 +131,24 @@ class LocalExecutor:
                     else self._run_forked(config, job_id)
                 )
             except Exception as e:
-                # A crashed trial must not poison the study with (0,0,0);
-                # prune it so TPE resamples elsewhere.
-                raise optuna.TrialPruned(f"backtest failed: {e}") from e
+                print(
+                    f"[Trial #{trial.number:03d}] FAILED: {e}",
+                    flush=True,
+                )
+                # Return worst-possible values instead of TrialPruned.
+                # TrialPruned leaves values=None which crashes the TPE
+                # multi-objective sampler when building numpy arrays.
+                return self._bad_result()
 
             primary = (
                 metrics["sqn"] if self.objective == "sqn" else metrics["sharpe_ratio"]
             ) or 0.0
             if primary != primary:  # NaN (e.g. too few samples) -> reject trial
-                raise optuna.TrialPruned("objective is NaN")
+                print(
+                    f"[Trial #{trial.number:03d}] REJECTED: NaN objective",
+                    flush=True,
+                )
+                return self._bad_result()
             trades = float(metrics["trades"] or 0)
             pnl = metrics["pnl"] or 0.0
 
@@ -181,7 +217,11 @@ class SchedulerExecutor:
                     )
                 except Exception as e:
                     print(f"[Trial #{trial.number:03d}] submit failed: {e}")
-                    study.tell(trial.number, state=optuna.trial.TrialState.FAIL)
+                    study.tell(
+                        trial,
+                        values=self._bad_result(),
+                        state=optuna.trial.TrialState.FAIL,
+                    )
                     continue
                 inflight[job_id] = (trial.number, params)
                 print(
@@ -206,7 +246,11 @@ class SchedulerExecutor:
                     print(
                         f"[Trial #{tno:03d}] job {job_id} lost ({resp.get('status')}); failing trial"
                     )
-                    study.tell(tno, state=optuna.trial.TrialState.FAIL)
+                    study.tell(
+                        tno,
+                        values=self._bad_result(),
+                        state=optuna.trial.TrialState.FAIL,
+                    )
                     inflight.pop(job_id)
                     continue
 
@@ -215,7 +259,11 @@ class SchedulerExecutor:
                     print(
                         f"[Trial #{tno:03d}] FAILED on scheduler: {result.get('error')}"
                     )
-                    study.tell(tno, state=optuna.trial.TrialState.FAIL)
+                    study.tell(
+                        tno,
+                        values=self._bad_result(),
+                        state=optuna.trial.TrialState.FAIL,
+                    )
                     inflight.pop(job_id)
                     continue
 
@@ -301,7 +349,7 @@ def run_optuna_study(
     client = SbtClient(endpoint=endpoint, timeout_ms=2000)
     executor: LocalExecutor | SchedulerExecutor
     if local:
-        executor = LocalExecutor(base_config, objective, primary_label)
+        executor = LocalExecutor(base_config, objective, primary_label, db_path=db_path)
         print("Execution mode: local (--local)")
     elif client.ping():
         executor = SchedulerExecutor(
@@ -309,7 +357,7 @@ def run_optuna_study(
         )
         print(f"Execution mode: scheduler at {endpoint}")
     else:
-        executor = LocalExecutor(base_config, objective, primary_label)
+        executor = LocalExecutor(base_config, objective, primary_label, db_path=db_path)
         print(f"No scheduler reachable at {endpoint}; falling back to local runs")
 
     print(f"\n--- Starting Optuna Optimization for '{strategy_name}' ---")

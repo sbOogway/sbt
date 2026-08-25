@@ -242,6 +242,7 @@ def cmd_optimize(args: argparse.Namespace) -> None:
         "interval": args.interval,
         "leverage": args.leverage,
         "start": args.start,
+        "end": args.end,
     }
     if getattr(args, "no_open", False):
         overrides["open_report"] = False
