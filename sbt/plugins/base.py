@@ -137,9 +137,7 @@ class RunnerPlugin(ABC):
     name: ClassVar[str]
 
     @abstractmethod
-    def expand(
-        self, cfg: "RunConfig", df: pd.DataFrame | None
-    ) -> dict[str, Window]:
+    def expand(self, cfg: "RunConfig", df: pd.DataFrame | None) -> dict[str, Window]:
         """Return named windows to execute for this run.
 
         Raises ``ValueError`` on invalid configuration or unusable data —
@@ -195,9 +193,7 @@ class PluginHost:
         for name in names:
             plugin_cls = get_plugin_class(name)
             missing = [
-                f
-                for f in plugin_cls.required_config_fields
-                if f not in available
+                f for f in plugin_cls.required_config_fields if f not in available
             ]
             if missing:
                 raise ValueError(

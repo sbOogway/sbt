@@ -88,9 +88,7 @@ class L2EventStrategy(Strategy):
             or ts_event - self._last_sample_ts >= self._interval_ns
         )
 
-    def _on_order_event(
-        self, delta: OrderBookDelta, price: float, size: float
-    ) -> None:
+    def _on_order_event(self, delta: OrderBookDelta, price: float, size: float) -> None:
         """Hook for subclasses accumulating per-event flow."""
 
     def _compute_signal(self, ts_event: int) -> float | None:

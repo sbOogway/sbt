@@ -40,7 +40,9 @@ def _make_job(job_id: str = "abc123", **overrides) -> BacktestJob:
     return BacktestJob(**defaults)
 
 
-def _make_result(job_id: str = "abc123", run_id: str | None = None, **overrides) -> BacktestResult:
+def _make_result(
+    job_id: str = "abc123", run_id: str | None = None, **overrides
+) -> BacktestResult:
     defaults = dict(
         job_id=job_id,
         run_id=run_id or job_id,
@@ -67,8 +69,12 @@ def populated_store():
     job2 = _make_job("bbb222", config=_make_config(strategy_name="orb"))
     store.save_job(job1)
     store.save_job(job2)
-    store._insert_result(_make_result("aaa111", sharpe_ratio=1.5, pnl=1234.56, num_trades=42, sqn=3.2))
-    store._insert_result(_make_result("bbb222", sharpe_ratio=0.8, pnl=-200.0, num_trades=10, sqn=1.1))
+    store._insert_result(
+        _make_result("aaa111", sharpe_ratio=1.5, pnl=1234.56, num_trades=42, sqn=3.2)
+    )
+    store._insert_result(
+        _make_result("bbb222", sharpe_ratio=0.8, pnl=-200.0, num_trades=10, sqn=1.1)
+    )
     yield store
     store.close()
 
@@ -95,7 +101,20 @@ class TestListResultsForDashboard:
 
         rows = list_results_for_dashboard(populated_store.conn)
         row = rows[0]
-        expected_keys = {"job_id", "run_id", "display_id", "strategy", "symbol", "sharpe", "pnl", "trades", "sqn", "duration", "date", "status"}
+        expected_keys = {
+            "job_id",
+            "run_id",
+            "display_id",
+            "strategy",
+            "symbol",
+            "sharpe",
+            "pnl",
+            "trades",
+            "sqn",
+            "duration",
+            "date",
+            "status",
+        }
         assert expected_keys == set(row.keys())
 
     def test_values_match_db(self, populated_store):
@@ -120,7 +139,13 @@ class TestListResultsForDashboard:
         from sbt.web.app import list_results_for_dashboard
 
         populated_store._insert_result(
-            _make_result("ccc333", status=JobStatus.FAILED, sharpe_ratio=None, pnl=None, num_trades=None)
+            _make_result(
+                "ccc333",
+                status=JobStatus.FAILED,
+                sharpe_ratio=None,
+                pnl=None,
+                num_trades=None,
+            )
         )
         rows = list_results_for_dashboard(populated_store.conn)
         ids = {r["job_id"] for r in rows}
@@ -182,7 +207,14 @@ class TestGetResultDetail:
         # Insert a result where run_id differs from job_id
         populated_store.save_job(_make_job("job999"))
         populated_store._insert_result(
-            _make_result("job999", run_id="run-xyz-999", sharpe_ratio=1.0, pnl=100.0, num_trades=5, sqn=1.0)
+            _make_result(
+                "job999",
+                run_id="run-xyz-999",
+                sharpe_ratio=1.0,
+                pnl=100.0,
+                num_trades=5,
+                sqn=1.0,
+            )
         )
         # Tearsheet file named with run_id, not job_id
         (tmp_path / "tearsheet_run-xyz-999.html").write_text("<html></html>")
@@ -206,8 +238,14 @@ class TestRoutes:
         job2 = _make_job("bbb222", config=_make_config(strategy_name="orb"))
         store.save_job(job1)
         store.save_job(job2)
-        store._insert_result(_make_result("aaa111", sharpe_ratio=1.5, pnl=1234.56, num_trades=42, sqn=3.2))
-        store._insert_result(_make_result("bbb222", sharpe_ratio=0.8, pnl=-200.0, num_trades=10, sqn=1.1))
+        store._insert_result(
+            _make_result(
+                "aaa111", sharpe_ratio=1.5, pnl=1234.56, num_trades=42, sqn=3.2
+            )
+        )
+        store._insert_result(
+            _make_result("bbb222", sharpe_ratio=0.8, pnl=-200.0, num_trades=10, sqn=1.1)
+        )
         store.close()
 
         app = create_app(db_path=str(db_file), reports_dir=tmp_path)

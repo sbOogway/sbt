@@ -367,7 +367,7 @@ def generate_sqn_report(
             <tr><th>Parameter</th><th>Value</th></tr>
           </thead>
           <tbody>
-            {''.join(f'<tr><td>{k}</td><td>{v}</td></tr>' for k, v in (best.params.items() if best else []))}
+            {"".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in (best.params.items() if best else []))}
           </tbody>
         </table>
       </div>

@@ -133,9 +133,7 @@ class ORBStrategy(SBTStrategy):
             return
         low = bar.low.as_double()
         high = bar.high.as_double()
-        long_stop_hit = (
-            self.position_side == OrderSide.BUY and low <= self._stop_price
-        )
+        long_stop_hit = self.position_side == OrderSide.BUY and low <= self._stop_price
         short_stop_hit = (
             self.position_side == OrderSide.SELL and high >= self._stop_price
         )

@@ -142,7 +142,9 @@ class TestSchemaMigration:
         assert int(row["value"]) == 5
 
     def test_new_columns_exist(self, store):
-        cols = {r[1] for r in store.conn.execute("PRAGMA table_info(results)").fetchall()}
+        cols = {
+            r[1] for r in store.conn.execute("PRAGMA table_info(results)").fetchall()
+        }
         assert "in_sample_sharpe_ratio" in cols
         assert "out_of_sample_num_trades" in cols
         assert "in_sample_funding_pnl" in cols
@@ -151,7 +153,9 @@ class TestSchemaMigration:
 
     def test_legacy_splits_json_column_survives(self, store):
         """Old databases keep splits_json; the column should still exist."""
-        cols = {r[1] for r in store.conn.execute("PRAGMA table_info(results)").fetchall()}
+        cols = {
+            r[1] for r in store.conn.execute("PRAGMA table_info(results)").fetchall()
+        }
         # On a fresh in-memory db, splits_json won't be created (field is gone
         # from the dataclass), but on a migrated file it would persist. This
         # test verifies the new columns are present regardless.

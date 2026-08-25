@@ -109,9 +109,7 @@ class L2OrderImbalance(L2EventStrategy):
             return super()._sample_due(ts_event)
         return self._events_since_trade >= self.config.cooldown_events
 
-    def _on_order_event(
-        self, delta: OrderBookDelta, price: float, size: float
-    ) -> None:
+    def _on_order_event(self, delta: OrderBookDelta, price: float, size: float) -> None:
         """Track the best quote and accumulate its event flow (CKS)."""
         self._events_since_trade += 1
         is_bid = delta.order.side == OrderSide.BUY
@@ -248,12 +246,16 @@ class L2OrderImbalance(L2EventStrategy):
         top_bids = self._top_sizes(self._bids, m, True)
         top_asks = self._top_sizes(self._asks, m, False)
         if cfg.ml_ofi_weight > 0:
-            z += cfg.ml_ofi_weight * self._multi_level_flow(ts_event, top_bids, top_asks)
+            z += cfg.ml_ofi_weight * self._multi_level_flow(
+                ts_event, top_bids, top_asks
+            )
 
         if cfg.trade_flow_weight > 0:
             dt_s = clamped_dt_s(ts_event, self._last_sample_ts)
             a_tf = ewma_alpha(dt_s, cfg.trade_half_life_ms / 1000.0)
-            self._tf_signed_ewma += a_tf * (self._tf_signed_window - self._tf_signed_ewma)
+            self._tf_signed_ewma += a_tf * (
+                self._tf_signed_window - self._tf_signed_ewma
+            )
             self._tf_abs_ewma += a_tf * (self._tf_abs_window - self._tf_abs_ewma)
             self._tf_signed_window = 0.0
             self._tf_abs_window = 0.0

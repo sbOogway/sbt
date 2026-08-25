@@ -29,7 +29,9 @@ from .report import generate_pareto_report, generate_sqn_report
 _RESULT_POLL_S = 1.0
 
 
-def _spawn_child_target(config: RunConfig, job_id: str, objective: str, db_path: str, queue):
+def _spawn_child_target(
+    config: RunConfig, job_id: str, objective: str, db_path: str, queue
+):
     """Top-level target for spawn-multiprocessing backtest trials."""
     try:
         runner = BacktestRunner(config, db_path=db_path)
@@ -62,7 +64,13 @@ class LocalExecutor:
 
     name = "local"
 
-    def __init__(self, base_config: RunConfig, objective: str, primary_label: str, db_path: str = "sbt.db"):
+    def __init__(
+        self,
+        base_config: RunConfig,
+        objective: str,
+        primary_label: str,
+        db_path: str = "sbt.db",
+    ):
         self.base_config = base_config
         self.objective = objective
         self.primary_label = primary_label
@@ -75,9 +83,7 @@ class LocalExecutor:
             "pnl": result.pnl,
             "trades": result.num_trades,
             "sqn": result.sqn if objective == "sqn" else None,
-            "sharpe_ratio": (
-                result.sharpe_ratio if objective == "sharpe" else None
-            ),
+            "sharpe_ratio": (result.sharpe_ratio if objective == "sharpe" else None),
         }
 
     def _run_inline(self, config: RunConfig, job_id: str) -> dict:
@@ -212,9 +218,7 @@ class SchedulerExecutor:
                 params = suggest_params(trial, param_space)
                 config = self.base_config.with_overrides(params)
                 try:
-                    job_id = self.client.submit(
-                        config, study_name=study.study_name
-                    )
+                    job_id = self.client.submit(config, study_name=study.study_name)
                 except Exception as e:
                     print(f"[Trial #{trial.number:03d}] submit failed: {e}")
                     study.tell(
@@ -340,9 +344,7 @@ def run_optuna_study(
             )
 
     param_space = parse_param_spec(params)
-    primary_label = (
-        "Sharpe Ratio" if objective == "sharpe" else "System Quality Number"
-    )
+    primary_label = "Sharpe Ratio" if objective == "sharpe" else "System Quality Number"
 
     # --- execution routing -------------------------------------------------
     endpoint = f"tcp://127.0.0.1:{port}"
@@ -391,13 +393,8 @@ def run_optuna_study(
     print("\n========== OPTIMIZATION COMPLETE ==========")
     failed = sum(1 for t in study.trials if t.state == optuna.trial.TrialState.FAIL)
     pruned = sum(1 for t in study.trials if t.state == optuna.trial.TrialState.PRUNED)
-    print(
-        f"Completed {len(study.trials)} trials "
-        f"(failed={failed}, pruned={pruned})."
-    )
-    completed = [
-        t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE
-    ]
+    print(f"Completed {len(study.trials)} trials (failed={failed}, pruned={pruned}).")
+    completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not completed:
         print("No successful trials; skipping report generation.")
         return study
@@ -431,9 +428,7 @@ def _pareto_front(trials: list[optuna.trial.FrozenTrial]) -> list:
 
     def dominates(i: int, j: int) -> bool:
         a, b = pts[i], pts[j]
-        return all(x >= y for x, y in zip(a, b)) and any(
-            x > y for x, y in zip(a, b)
-        )
+        return all(x >= y for x, y in zip(a, b)) and any(x > y for x, y in zip(a, b))
 
     front = []
     for i in range(len(trials)):

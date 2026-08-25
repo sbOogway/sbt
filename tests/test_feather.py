@@ -98,11 +98,14 @@ def test_actual_range_name_heals_stale_suffix():
 
 
 def test_actual_range_name_leaves_custom_names_alone():
-    assert actual_range_name(
-        "my_custom_name.feather",
-        pd.Timestamp("2024-01-01", tz="UTC"),
-        pd.Timestamp("2024-06-01", tz="UTC"),
-    ) is None
+    assert (
+        actual_range_name(
+            "my_custom_name.feather",
+            pd.Timestamp("2024-01-01", tz="UTC"),
+            pd.Timestamp("2024-06-01", tz="UTC"),
+        )
+        is None
+    )
 
 
 def test_actual_range_name_idempotent_when_matching():

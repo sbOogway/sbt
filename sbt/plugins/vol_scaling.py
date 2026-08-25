@@ -81,15 +81,15 @@ class VolScalingPlugin(SizingPlugin):
         rv = sum(r * r for r in self.daily_returns[-self.rv_lookback :])
         self._rv_history.append(rv)
         c = sum(self._rv_history) / len(self._rv_history)
-        new_weight = (
-            min(self.vol_max_scale, c / rv) if rv > 0 else self.vol_max_scale
-        )
+        new_weight = min(self.vol_max_scale, c / rv) if rv > 0 else self.vol_max_scale
         if self.vol_rebalance_freq == "monthly":
             self._pending_weight = new_weight
         else:
             self._weight = new_weight
 
-    def _on_day_complete(self, day_date, day_close: float | None, new_date=None) -> None:
+    def _on_day_complete(
+        self, day_date, day_close: float | None, new_date=None
+    ) -> None:
         """A trading day ended: feed its close-to-close return, maybe rebalance.
 
         *new_date* is the incoming day; monthly weight refresh takes effect on
@@ -103,7 +103,10 @@ class VolScalingPlugin(SizingPlugin):
             and getattr(self, "_pending_weight", None) is not None
         ):
             gate_date = new_date if new_date is not None else day_date
-            if self._rebalance_month is None or gate_date.month != self._rebalance_month:
+            if (
+                self._rebalance_month is None
+                or gate_date.month != self._rebalance_month
+            ):
                 self._weight = self._pending_weight
                 self._pending_weight = None
                 self._rebalance_month = gate_date.month

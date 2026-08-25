@@ -65,7 +65,9 @@ class Scheduler:
         self.busy_workers: dict[str, str] = {}  # worker_id -> job_id (post-ACK)
         self.worker_procs: dict[str, subprocess.Popen] = {}  # worker_id -> proc
         self.jobs_by_id: dict[str, BacktestJob] = {}  # every live job
-        self.awaiting_ack: dict[str, tuple[str, float]] = {}  # job_id -> (worker_id, deadline)
+        self.awaiting_ack: dict[
+            str, tuple[str, float]
+        ] = {}  # job_id -> (worker_id, deadline)
         self.dispatched_at: dict[str, float] = {}  # job_id -> monotonic
         self.last_pong: dict[str, float] = {}  # worker_id -> monotonic
         self._last_heartbeat = 0.0
@@ -253,7 +255,10 @@ class Scheduler:
         busy = list(self.busy_workers)
         for worker_id in busy:
             last = self.last_pong.get(worker_id)
-            if last is not None and now - last > MAX_MISSED_PONGS * HEARTBEAT_INTERVAL_S:
+            if (
+                last is not None
+                and now - last > MAX_MISSED_PONGS * HEARTBEAT_INTERVAL_S
+            ):
                 self._handle_worker_death(
                     worker_id, reason=f"missed >{MAX_MISSED_PONGS} heartbeats"
                 )
@@ -276,9 +281,15 @@ class Scheduler:
                 continue
             if now - started <= job.timeout_seconds:
                 continue
-            worker_id = self.busy_workers.get(job_id) or self.awaiting_ack.get(job_id, ("?", 0))[0]
+            worker_id = (
+                self.busy_workers.get(job_id)
+                or self.awaiting_ack.get(job_id, ("?", 0))[0]
+            )
             logger.error(
-                "Job %s exceeded timeout of %ds on %s", job_id, job.timeout_seconds, worker_id
+                "Job %s exceeded timeout of %ds on %s",
+                job_id,
+                job.timeout_seconds,
+                worker_id,
             )
             if worker_id in self.worker_procs:
                 self._handle_worker_death(
@@ -488,7 +499,12 @@ class Scheduler:
                 "Recovered %d unfinished job(s) from previous run:", len(backlog)
             )
             for job in backlog:
-                logger.info("  - %s (%s, attempts=%d)", job.id, job.config.strategy_name, job.attempts)
+                logger.info(
+                    "  - %s (%s, attempts=%d)",
+                    job.id,
+                    job.config.strategy_name,
+                    job.attempts,
+                )
                 self.job_queue.append(job)
                 self.jobs_by_id[job.id] = job
 

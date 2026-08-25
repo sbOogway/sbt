@@ -37,7 +37,7 @@ class BollingerSqueeze(SBTStrategy):
             return None
         mean = sum(data[-period:]) / period
         variance = sum((x - mean) ** 2 for x in data[-period:]) / period
-        return variance ** 0.5
+        return variance**0.5
 
     def _atr(self) -> float | None:
         period = self.config.atr_period

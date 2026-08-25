@@ -47,7 +47,9 @@ _TV_INTERVALS = {
 }
 
 
-def _chart_block(positions_json: str, pair: str, exchange: str = "", interval: str = "5m") -> str:
+def _chart_block(
+    positions_json: str, pair: str, exchange: str = "", interval: str = "5m"
+) -> str:
     prefix = _TV_EXCHANGE_PREFIX.get((exchange or "").lower())
     if prefix is None:
         return (

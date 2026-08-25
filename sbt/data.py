@@ -88,7 +88,13 @@ def fetch_ohlcv(
         }
 
     out = []
-    for raw in _paginate(page, start_ms, end_ms, label=f"Fetching {symbol} {interval} from {exchange_id}", initial_limit=limit):
+    for raw in _paginate(
+        page,
+        start_ms,
+        end_ms,
+        label=f"Fetching {symbol} {interval} from {exchange_id}",
+        initial_limit=limit,
+    ):
         out.extend(parse(k) for k in raw)
     return out
 
@@ -113,7 +119,13 @@ def fetch_funding_rates(
         }
 
     out = []
-    for raw in _paginate(page, start_ms, end_ms, label=f"Fetching {symbol} funding rates from {exchange_id}", initial_limit=limit):
+    for raw in _paginate(
+        page,
+        start_ms,
+        end_ms,
+        label=f"Fetching {symbol} funding rates from {exchange_id}",
+        initial_limit=limit,
+    ):
         out.extend(parse(r) for r in raw)
     return out
 
@@ -149,8 +161,12 @@ def main() -> None:
     )
     parser.add_argument("--end", default=None, help="End date (default: today)")
     parser.add_argument("--output", default=None, help="Output feather path")
-    parser.add_argument("--page-limit", type=int, default=None,
-                        help="Rows per request (default: 1000 ohlcv / 500 funding)")
+    parser.add_argument(
+        "--page-limit",
+        type=int,
+        default=None,
+        help="Rows per request (default: 1000 ohlcv / 500 funding)",
+    )
     parser.add_argument(
         "--no-resume",
         action="store_true",
@@ -184,7 +200,9 @@ def main() -> None:
     if not args.no_resume:
         resume_ms, prev = _resume_start_ms(output, args.type)
         if resume_ms is not None:
-            print(f"Resuming {output} from {pd.Timestamp(resume_ms, unit='ms', tz='UTC')}")
+            print(
+                f"Resuming {output} from {pd.Timestamp(resume_ms, unit='ms', tz='UTC')}"
+            )
             start_ms = max(start_ms, resume_ms)
 
     if args.type == "funding":
@@ -193,7 +211,11 @@ def main() -> None:
         )
     else:
         rows = fetch_ohlcv(
-            args.exchange, args.symbol, args.interval, start_ms, end_ms,
+            args.exchange,
+            args.symbol,
+            args.interval,
+            start_ms,
+            end_ms,
             page_limit=args.page_limit,
         )
     if not rows and prev is None:

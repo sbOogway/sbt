@@ -128,8 +128,6 @@ def find_feather(
 
         choice = max(candidates, key=rank)
         if len(candidates) > 1:
-            print(
-                f"find_feather: {len(candidates)} matches; chose {choice}"
-            )
+            print(f"find_feather: {len(candidates)} matches; chose {choice}")
         return choice
     return None

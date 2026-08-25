@@ -78,7 +78,13 @@ def test_injected_fields_have_defaults_except_instrument_id():
     fields = msgspec.structs.fields(SBTStrategyConfig)
     by_name = {f.name: f for f in fields}
     assert by_name["instrument_id"].required
-    for name in ("capital", "leverage", "backtest_start_date", "active_from", "plugins"):
+    for name in (
+        "capital",
+        "leverage",
+        "backtest_start_date",
+        "active_from",
+        "plugins",
+    ):
         assert not by_name[name].required
 
 

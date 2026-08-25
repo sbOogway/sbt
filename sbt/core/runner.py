@@ -25,13 +25,23 @@ from nautilus_trader.model.enums import AccountType, BookType, OmsType
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money, Price, Quantity
 
-from ..stats import AnnualizedReturn, CalmarRatio, RunConfigStatistic, system_quality_number
+from ..stats import (
+    AnnualizedReturn,
+    CalmarRatio,
+    RunConfigStatistic,
+    system_quality_number,
+)
 from ..utils import get_strategy_class, make_perpetual, parse_interval
 from ..plugins import RunnerPlugin, Window, get_runner_plugin_class
 from .config import RunConfig
 from .feather import find_feather, to_utc_ts
 from .job import BacktestResult, JobStatus
-from .l2 import list_l2_instruments, load_l2_instrument, load_order_book_deltas, load_trade_ticks
+from .l2 import (
+    list_l2_instruments,
+    load_l2_instrument,
+    load_order_book_deltas,
+    load_trade_ticks,
+)
 
 _CURRENCY_MAP = {
     "USDT": USDT,
@@ -53,9 +63,7 @@ def _jsonable_records(df: pd.DataFrame) -> list[dict]:
     d = df.copy()
     for col in d.columns:
         if pd.api.types.is_datetime64_any_dtype(d[col]):
-            d[col] = d[col].apply(
-                lambda v: v.isoformat() if pd.notna(v) else None
-            )
+            d[col] = d[col].apply(lambda v: v.isoformat() if pd.notna(v) else None)
     out = []
     for rec in d.to_dict("records"):
         clean = {}
@@ -67,7 +75,7 @@ def _jsonable_records(df: pd.DataFrame) -> list[dict]:
             elif hasattr(v, "item"):  # numpy scalars
                 try:
                     v = v.item()
-                except (ValueError, AttributeError):
+                except ValueError, AttributeError:
                     pass
             elif isinstance(v, bytes):
                 v = v.decode("utf-8", errors="replace")
@@ -90,9 +98,7 @@ def _spill_artifacts(
     }
     needs_spill = max(len(positions_df), len(fills_df)) > INLINE_ROW_BUDGET
     if not needs_spill:
-        out["positions"] = (
-            _jsonable_records(positions_df) if len(positions_df) else []
-        )
+        out["positions"] = _jsonable_records(positions_df) if len(positions_df) else []
         out["fills"] = _jsonable_records(fills_df) if len(fills_df) else []
         return out
 
@@ -321,9 +327,7 @@ def _collect_result(
     )
 
 
-def load_bars(
-    df: pd.DataFrame, bar_type: BarType, instrument=None
-) -> list[Bar]:
+def load_bars(df: pd.DataFrame, bar_type: BarType, instrument=None) -> list[Bar]:
     """Convert an OHLCV DataFrame into a list of Nautilus Bar objects.
 
     Iterates plain numpy arrays rather than DataFrame rows (itertuples
@@ -479,9 +483,7 @@ class BacktestRunner:
 
         df = bars
         if df is None and cfg.data_type != "l2":
-            df, err = _discover_bars(
-                cfg, to_utc_ts(cfg.start), to_utc_ts(cfg.end)
-            )
+            df, err = _discover_bars(cfg, to_utc_ts(cfg.start), to_utc_ts(cfg.end))
             if err:
                 return _fail(job_id, err)
 
@@ -559,18 +561,15 @@ class BacktestRunner:
             try:
                 instrument = load_l2_instrument(inst_id_str, catalog_dir=cfg.data_dir)
             except Exception as e:
-                return _fail(
-                    job_id, f"Failed loading L2 instrument {inst_id_str}: {e}"
-                )
+                return _fail(job_id, f"Failed loading L2 instrument {inst_id_str}: {e}")
 
             venue = instrument.id.venue
             self.venue = venue
             engine = BacktestEngine(config=BacktestEngineConfig())
             self.engine = engine
 
-            settle_currency = (
-                instrument.settlement_currency
-                or _resolve_currency(cfg.settle_currency)
+            settle_currency = instrument.settlement_currency or _resolve_currency(
+                cfg.settle_currency
             )
             _add_venue(
                 engine,
@@ -609,9 +608,7 @@ class BacktestRunner:
             strategy_kwargs = _base_strategy_kwargs(cfg, instrument.id, start)
             # L2 configs subclass SBTStrategyConfig directly: no bar_type.
             try:
-                strategy_config = _build_strategy_config(
-                    ConfigClass, **strategy_kwargs
-                )
+                strategy_config = _build_strategy_config(ConfigClass, **strategy_kwargs)
             except (TypeError, ValueError) as e:
                 # TypeError: missing required injected field (wrong tier);
                 # ValueError: unknown strategy_params key.
@@ -681,9 +678,7 @@ class BacktestRunner:
             # Bar-mode configs subclass SBTBarStrategyConfig: bar_type required.
             strategy_kwargs["bar_type"] = bar_type
             try:
-                strategy_config = _build_strategy_config(
-                    ConfigClass, **strategy_kwargs
-                )
+                strategy_config = _build_strategy_config(ConfigClass, **strategy_kwargs)
             except (TypeError, ValueError) as e:
                 # TypeError: missing required injected field (wrong tier);
                 # ValueError: unknown strategy_params key.

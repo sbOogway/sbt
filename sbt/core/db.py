@@ -102,9 +102,7 @@ class ResultStore:
         if res_cols:
             for _name, col, _kind, aff in result_field_specs():
                 if col not in res_cols:
-                    self.conn.execute(
-                        f"ALTER TABLE results ADD COLUMN {col} {aff}"
-                    )
+                    self.conn.execute(f"ALTER TABLE results ADD COLUMN {col} {aff}")
 
         self.conn.execute(
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",
@@ -226,7 +224,9 @@ class ResultStore:
             submitted_at=datetime.datetime.fromisoformat(row["submitted_at"]),
             worker_id=row["worker_id"],
             study_name=row["study_name"],
-            timeout_seconds=row["timeout_seconds"] if "timeout_seconds" in row.keys() else 3600,
+            timeout_seconds=row["timeout_seconds"]
+            if "timeout_seconds" in row.keys()
+            else 3600,
             attempts=row["attempts"] if "attempts" in row.keys() else 0,
         )
 
@@ -265,9 +265,7 @@ class ResultStore:
                 (study_name,),
             ).fetchall()
         else:
-            rows = self.conn.execute(
-                "SELECT * FROM results ORDER BY job_id"
-            ).fetchall()
+            rows = self.conn.execute("SELECT * FROM results ORDER BY job_id").fetchall()
         return [self._row_to_result(r) for r in rows]
 
     def _insert_result(self, result: BacktestResult) -> None:

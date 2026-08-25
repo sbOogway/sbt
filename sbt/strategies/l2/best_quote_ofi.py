@@ -40,9 +40,7 @@ class L2BestQuoteOFI(L2EventStrategy):
         self._ofi_ewma: float = 0.0
         self._depth_ewma: float = 0.0
 
-    def _on_order_event(
-        self, delta: OrderBookDelta, price: float, size: float
-    ) -> None:
+    def _on_order_event(self, delta: OrderBookDelta, price: float, size: float) -> None:
         is_bid = delta.order.side == OrderSide.BUY
         book = self._bids if is_bid else self._asks
         action = delta.action

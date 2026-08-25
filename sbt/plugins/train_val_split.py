@@ -35,9 +35,7 @@ class TrainValSplit(RunnerPlugin):
         """Timestamp dividing in-sample from out-of-sample windows."""
         return first_ts + (last_ts - first_ts) * self.split_fraction
 
-    def expand(
-        self, cfg, df: pd.DataFrame | None
-    ) -> dict[str, Window]:
+    def expand(self, cfg, df: pd.DataFrame | None) -> dict[str, Window]:
         """Derive IS/OOS windows from the (already date-filtered) data.
 
         The boundary bar belongs to OOS only; IS ends one bar interval
@@ -48,9 +46,7 @@ class TrainValSplit(RunnerPlugin):
         if df is None:
             # L2 / loader-fetched mode: explicit bounds are required.
             if not cfg.end:
-                raise ValueError(
-                    "train_val_split requires an explicit 'end' date"
-                )
+                raise ValueError("train_val_split requires an explicit 'end' date")
             range_start = pd.Timestamp(cfg.start, tz="UTC")
             range_end = pd.Timestamp(cfg.end, tz="UTC")
             slices: dict[str, pd.DataFrame | None] = {
@@ -74,14 +70,12 @@ class TrainValSplit(RunnerPlugin):
 
         if df is not None:
             warmup = max(getattr(cfg, "warmup_bars", 0) or 0, 0)
-            oos_load_from = (
-                split_ts - warmup * bar_delta if warmup else split_ts
-            )
+            oos_load_from = split_ts - warmup * bar_delta if warmup else split_ts
             oos_load_from = max(oos_load_from, range_start)
             slices = {
-                IN_SAMPLE: df[
-                    (ts >= range_start) & (ts <= is_end)
-                ].reset_index(drop=True),
+                IN_SAMPLE: df[(ts >= range_start) & (ts <= is_end)].reset_index(
+                    drop=True
+                ),
                 OUT_OF_SAMPLE: df[
                     (ts >= oos_load_from) & (ts <= range_end)
                 ].reset_index(drop=True),

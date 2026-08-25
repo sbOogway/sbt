@@ -122,8 +122,7 @@ class SBTStrategy(Strategy):
     def trading_active(self) -> bool:
         """False while processing warm-up bars (before ``active_from``)."""
         return (
-            self._active_from_ns is None
-            or self._current_ts_ns >= self._active_from_ns
+            self._active_from_ns is None or self._current_ts_ns >= self._active_from_ns
         )
 
     # ------------------------------------------------------------------
@@ -211,9 +210,7 @@ class SBTStrategy(Strategy):
             self._open_qty = None
             return False
         close_side = (
-            OrderSide.SELL
-            if self.position_side == OrderSide.BUY
-            else OrderSide.BUY
+            OrderSide.SELL if self.position_side == OrderSide.BUY else OrderSide.BUY
         )
         submitted = self.submit_market(close_side, self._open_qty)
         self.funding.settle_position()

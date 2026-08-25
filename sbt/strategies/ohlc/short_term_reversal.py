@@ -55,9 +55,7 @@ class ShortTermReversal(SBTStrategy):
 
         window = self._returns[-self.config.lookback :]
         threshold = (
-            self.config.threshold_mult
-            * sum(abs(r) for r in window)
-            / len(window)
+            self.config.threshold_mult * sum(abs(r) for r in window) / len(window)
         )
         r_last = self._returns[-1]
         if abs(r_last) <= threshold or threshold <= 0:

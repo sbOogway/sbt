@@ -59,7 +59,9 @@ class RunConfig:
         hints = get_type_hints(type(self))
         return {
             f.name: (
-                str(getattr(self, f.name)) if hints[f.name] is Decimal else getattr(self, f.name)
+                str(getattr(self, f.name))
+                if hints[f.name] is Decimal
+                else getattr(self, f.name)
             )
             for f in dataclasses.fields(self)
         }
@@ -207,9 +209,7 @@ class RunConfig:
             for spec in args.param:
                 name, _, raw = spec.partition("=")
                 if not name or not raw:
-                    raise ValueError(
-                        f"Invalid --param '{spec}': expected NAME=VALUE"
-                    )
+                    raise ValueError(f"Invalid --param '{spec}': expected NAME=VALUE")
                 overrides[name.strip()] = _parse_scalar(raw)
             cfg = cfg.with_overrides(overrides)
         return cfg

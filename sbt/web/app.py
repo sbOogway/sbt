@@ -137,9 +137,7 @@ def create_app(
             rows = list_results_for_dashboard(conn)
         finally:
             conn.close()
-        return templates.TemplateResponse(
-            request, "list.html", {"results": rows}
-        )
+        return templates.TemplateResponse(request, "list.html", {"results": rows})
 
     @app.get("/results/{job_id}", response_class=HTMLResponse)
     def detail(request: Request, job_id: str):

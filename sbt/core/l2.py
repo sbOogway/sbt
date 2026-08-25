@@ -34,6 +34,7 @@ def _cached(key: tuple, build):
     _L2_CACHE[key] = build()
     return _L2_CACHE[key]
 
+
 _ACTION_MAP = {
     1: BookAction.ADD,
     2: BookAction.UPDATE,
@@ -191,15 +192,17 @@ def _load_order_book_deltas(
             p = Price(prices[i], precision=p_prec)
             s = Quantity(sizes[i], precision=s_prec)
             order = BookOrder(_SIDE_MAP[sides[i]], p, s, int(order_ids[i]))
-            deltas.append(OrderBookDelta(
-                inst_id,
-                _ACTION_MAP[actions[i]],
-                order,
-                int(flags[i]),
-                int(seqs[i]),
-                int(ts),
-                int(ts_inits[i]),
-            ))
+            deltas.append(
+                OrderBookDelta(
+                    inst_id,
+                    _ACTION_MAP[actions[i]],
+                    order,
+                    int(flags[i]),
+                    int(seqs[i]),
+                    int(ts),
+                    int(ts_inits[i]),
+                )
+            )
 
         del table, actions, sides, raw_p, raw_s, order_ids, flags, seqs
         del ts_events, ts_inits, prices, sizes
@@ -269,16 +272,20 @@ def _load_trade_ticks(
 
             p = Price(prices[i], precision=p_prec)
             s = Quantity(sizes[i], precision=s_prec)
-            agg_side = _AGGRESSOR_SIDE_MAP.get(aggressor_sides[i], AggressorSide.NO_AGGRESSOR)
-            trades.append(TradeTick(
-                instrument_id=inst_id,
-                price=p,
-                size=s,
-                aggressor_side=agg_side,
-                trade_id=TradeId(str(trade_ids[i])),
-                ts_event=int(ts),
-                ts_init=int(ts_inits[i]),
-            ))
+            agg_side = _AGGRESSOR_SIDE_MAP.get(
+                aggressor_sides[i], AggressorSide.NO_AGGRESSOR
+            )
+            trades.append(
+                TradeTick(
+                    instrument_id=inst_id,
+                    price=p,
+                    size=s,
+                    aggressor_side=agg_side,
+                    trade_id=TradeId(str(trade_ids[i])),
+                    ts_event=int(ts),
+                    ts_init=int(ts_inits[i]),
+                )
+            )
 
         del table, raw_p, raw_s, aggressor_sides, trade_ids
         del ts_events, ts_inits, prices, sizes
