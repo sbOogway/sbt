@@ -53,7 +53,7 @@ Do NOT modify other existing strategies or any core module (`__main__.py`, `core
 
 ## 5. Market data
 
-- Check `data/` first: feathers auto-detect via `{exchange}_{symbol}_{interval}_*.feather`; funding via `*funding*` in filename.
+- Check `data/` first: feathers auto-detect via `{exchange}_{symbol}_{tag}_*.feather` (tag = interval, or `funding`).
 - Missing data → download it:
   `uv run python3 -m sbt.data --exchange hyperliquid --symbol XYZ-SP500/USDC:USDC --interval 1h --start 2025-01-01 --type ohlcv` (or `--type funding`; funding ignores interval).
 - Bound history sensibly (the device has ~7GB RAM; multi-year minute data can OOM — prefer 1h bars or shorter spans when unsure).

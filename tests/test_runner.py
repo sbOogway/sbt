@@ -17,7 +17,6 @@ from sbt.core.config import RunConfig
 from sbt.core.job import JobStatus
 from sbt.core.runner import (
     BacktestRunner,
-    _feather_range,
     _resolve_currency,
     _slice_frame,
     load_bars,
@@ -144,14 +143,6 @@ def test_l2_mode_still_requires_catalog(orb_config, make_bars):
 # ---------------------------------------------------------------------
 # Pure helper units
 # ---------------------------------------------------------------------
-
-
-def test_feather_range_parsing():
-    assert _feather_range("/x/hyperliquid_BTCUSDT_1h_20240101_20240301.feather") == (
-        pd.Timestamp("2024-01-01", tz="UTC"),
-        pd.Timestamp("2024-03-01 23:59:59", tz="UTC"),
-    )
-    assert _feather_range("/x/unprefixed.feather") is None
 
 
 def test_resolve_currency_known_and_unknown():

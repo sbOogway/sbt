@@ -46,9 +46,10 @@ code path per data mode (`bar`, `l2`) inside `_run_window`.
 | `sbt/__main__.py` | CLI entry: parse config, run, print report | `RunConfig.parse_cli`, `BacktestRunner.run` |
 | `sbt/core/config.py` | Run configuration; TOML/CLI/JSON codec | `RunConfig`, `_coerce` |
 | `sbt/core/job.py` | Job/result models + JSON codecs | `BacktestJob`, `BacktestResult`, `JobStatus` |
-| `sbt/core/runner.py` | Engine setup + execution + windowing | `BacktestRunner`, `run/_run_windows/_run_window`, `load_bars`, `find_feather`, `resolve_runner_plugin`, `INLINE_ROW_BUDGET` |
+| `sbt/core/runner.py` | Engine setup + execution + windowing | `BacktestRunner`, `run/_run_windows/_run_window`, `load_bars`, `resolve_runner_plugin`, `INLINE_ROW_BUDGET` |
 | `sbt/core/db.py` | SQLite store (jobs/results), migrations | `ResultStore`, `_SCHEMA_VERSION` |
 | `sbt/core/l2.py` | Nautilus catalog L2 loaders | `load_order_book_deltas`, `load_trade_ticks`, `list_l2_instruments` |
+| `sbt/core/feather.py` | Feather filename contract: naming, range parsing, discovery/ranking, resume healing | `feather_path`, `parse_range`, `find_feather`, `actual_range_name`, `to_utc_ts` |
 | `sbt/utils.py` | Strategy registry, instrument factory, intervals | `_STRATEGY_REGISTRY`, `get_strategy_class`, `make_perpetual`, `parse_interval`, `interval_delta` |
 | `sbt/stats.py` | Custom portfolio statistics | `system_quality_number`, `CalmarRatio`, `AnnualizedReturn`, `RunConfigStatistic` |
 | `sbt/plugins/base.py` | Plugin contracts + host + config tiers + Window | `SBTStrategyConfig`, `SBTBarStrategyConfig`, `StrategyPlugin`, `SizingPlugin`, `RunnerPlugin`, `Window`, `PluginHost` |
@@ -159,7 +160,7 @@ Symbol matched against `list_l2_instruments(catalog_dir)` (substring
 normalization); instrument from `load_l2_instrument`; venue/book from the
 instrument; deltas + trades loaded via
 `load_order_book_deltas/load_trade_ticks` which expect **plain date
-strings** — hence `start_str = str(_to_utc_ts(start))` normalization
+strings** — hence `start_str = str(to_utc_ts(start))` normalization
 (`pd.Timestamp(x, tz="UTC")` raises on tz-aware input). Strategy kwargs
 mirror bar mode minus `capital` semantics differences; `bar_type` added
 only when the ConfigClass declares one.
@@ -171,13 +172,17 @@ only when the ConfigClass declares one.
 Do NOT use nautilus' `BarDataWrangler` — broken on nautilus 1.230.0
 ("buffer source array is read-only" for every input shape).
 
-`find_feather(exchange, symbol, interval, dirs, start, end)`:
-pattern `{exchange.lower()}_{symbol_without_slash}_{interval}_*.feather`;
-bare (unprefixed) files count only when unique; ranking among matches =
+`core/feather.py` owns the whole filename contract; the runner only
+calls into it. `find_feather(exchange, symbol, tag, dirs, start, end)`:
+pattern `{exchange.lower()}_{symbol_without_slash}_{tag}_*.feather`
+(*tag* = bar interval for OHLCV, `funding` for funding rates); bare
+(unprefixed) files count only when unique; ranking among matches =
 covers [start,end] > max overlap > newest range end; searches
 `[cfg.data_dir, "."]` in order; prints its choice when ambiguous.
-Range suffix convention `_YYYYMMDD[_YYYYMMDD].feather` parsed by
-`_feather_range`.
+Range suffix `_YYYYMMDD[_YYYYMMDD].feather` parsed by `parse_range`;
+the downloader names files via `feather_path()` and heals stale
+suffixes on resume via `actual_range_name()`, so a conventional
+filename always states the range of its contents.
 
 ## 5. Strategy framework
 
@@ -442,11 +447,16 @@ stops on empty page. Incremental resume by default: existing output file
 is extended from its max timestamp (`--no-resume` refetches from --start,
 `--page-limit` overrides rows/call; defaults 1000 ohlcv / 500 funding).
 Output dedupes on timestamp and sorts before writing feather.
-Naming: `data/{exchange}_{symbol_no_slash}_{interval|funding}_YYYYMMDD[_YYYYMMDD].feather`
-(the end suffix comes from --end or today).
+Naming goes through `core/feather.feather_path()`:
+`data/{exchange}_{symbol_no_slash}_{tag}_YYYYMMDD[_YYYYMMDD].feather`
+(*tag* = interval or `funding`; the end suffix comes from --end or
+today). After writing, `actual_range_name()` renames conventional files
+so their encoded range equals the actual min/max timestamps — a
+conventional name always states what's inside (explicit `--output`
+names not matching the convention are left alone).
 
-Funding files are matched separately by the runner using interval token
-`"funding"`; funding data is metadata only (see §5).
+Funding files are matched separately by the runner passing tag
+`"funding"` to `find_feather`; funding data is metadata only (see §5).
 
 ## 11. Reporting
 
@@ -470,7 +480,7 @@ resolution; unknown exchanges omit the chart. With a train/val split,
    Missing it breaks struct construction at import/run time.
 3. **tz-aware Timestamp rejection**: `pd.Timestamp(x, tz="UTC")` raises if
    x is already tz-aware. L2 loaders need plain date strings; normalize
-   with `str(_to_utc_ts(x))`.
+   with `str(to_utc_ts(x))` (`core/feather.py`).
 4. **Slippage has exactly one mechanism**: fee-bps added to taker fee
    (§4.2). Never reintroduce FillModel — it double-counts.
 5. **Funding never flows through engine PnL**; it is a side-channel

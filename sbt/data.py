@@ -14,6 +14,8 @@ import ccxt
 import pandas as pd
 from tqdm import tqdm
 
+from .core.feather import actual_range_name, feather_path
+
 _DEFAULT_PAGE_LIMITS = {"ohlcv": 1000, "funding": 500}
 
 
@@ -172,11 +174,10 @@ def main() -> None:
     start_ms = int(start_dt.timestamp() * 1000)
     end_ms = int(end_dt.timestamp() * 1000)
 
-    safe_symbol = args.symbol.replace("/", "")
     data_tag = args.type if args.type != "ohlcv" else args.interval
     output = Path(
         args.output
-        or f"data/{args.exchange}_{safe_symbol}_{data_tag}_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.feather"
+        or feather_path(args.exchange, args.symbol, data_tag, start_dt, end_dt)
     )
 
     prev: pd.DataFrame | None = None
@@ -209,6 +210,10 @@ def main() -> None:
     df.reset_index(drop=True, inplace=True)
 
     df.to_feather(output)
+    healed = actual_range_name(output, df["timestamp"].min(), df["timestamp"].max())
+    if healed is not None and healed != output.name:
+        output.rename(output.with_name(healed))
+        print(f"Renamed {output.name} -> {healed} to match the actual data range")
     print(f"Saved {len(df)} rows to {output}")
     print(f"Date range: {df['timestamp'].min()} -> {df['timestamp'].max()}")
 

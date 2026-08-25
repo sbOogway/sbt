@@ -11,10 +11,8 @@ Usage (standalone)::
     # runner.engine / runner.venue available for report generation
 """
 
-import glob
 from decimal import Decimal
 import dataclasses
-import re
 import time
 from pathlib import Path
 
@@ -31,6 +29,7 @@ from ..stats import AnnualizedReturn, CalmarRatio, RunConfigStatistic, system_qu
 from ..utils import get_strategy_class, make_perpetual, parse_interval
 from ..plugins import RunnerPlugin, Window, get_runner_plugin_class
 from .config import RunConfig
+from .feather import find_feather, to_utc_ts
 from .job import BacktestResult, JobStatus
 from .l2 import list_l2_instruments, load_l2_instrument, load_order_book_deltas, load_trade_ticks
 
@@ -125,13 +124,6 @@ def _spill_artifacts(
 # ------------------------------------------------------------------
 # Data helpers (moved from __main__)
 # ------------------------------------------------------------------
-
-
-def _to_utc_ts(value: str | pd.Timestamp) -> pd.Timestamp:
-    """Normalize a date string or Timestamp to a tz-aware UTC Timestamp."""
-    if isinstance(value, pd.Timestamp):
-        return value.tz_convert("UTC") if value.tzinfo else value.tz_localize("UTC")
-    return pd.Timestamp(value, tz="UTC")
 
 
 def _fmt_metric(value) -> str:
@@ -232,7 +224,7 @@ def _add_venue(
 
 def _base_strategy_kwargs(cfg: RunConfig, instrument_id, start_ts) -> dict:
     """Strategy-config fields every execution mode must supply."""
-    start_ts = _to_utc_ts(start_ts)
+    start_ts = to_utc_ts(start_ts)
     return {
         "instrument_id": instrument_id,
         "capital": cfg.capital,
@@ -381,78 +373,6 @@ def load_funding_rates(df: pd.DataFrame, instrument_id) -> list[FundingRateUpdat
     return updates
 
 
-def _feather_range(path: str) -> tuple[pd.Timestamp, pd.Timestamp] | None:
-    """Parse the _YYYYMMDD_YYYYMMDD suffix convention into (start, end)."""
-    m = re.search(r"_(\d{8})_(\d{8})\.feather$", path)
-    if not m:
-        return None
-    s, e = m.group(1), m.group(2)
-    return (
-        pd.Timestamp(f"{s[:4]}-{s[4:6]}-{s[6:]}", tz="UTC"),
-        pd.Timestamp(f"{e[:4]}-{e[4:6]}-{e[6:]} 23:59:59", tz="UTC"),
-    )
-
-
-def find_feather(
-    exchange: str,
-    symbol: str,
-    interval: str,
-    search_dirs: list[str] | None = None,
-    start: str | None = None,
-    end: str | None = None,
-) -> str | None:
-    """Discover a feather data file by convention.
-
-    Searches *search_dirs* (defaulting to ``["data", "."]``) for files
-    matching ``{exchange}_{symbol}_{interval}_*.feather``. Unprefixed
-    ``{symbol}_{interval}_*.feather`` files are considered only when they
-    are the unique match in a directory (never preferred over prefixed
-    ones). When several files match, the one best covering [start, end]
-    wins (full coverage first, then max overlap, then newest range); the
-    chosen file is printed.
-    """
-    if search_dirs is None:
-        search_dirs = ["data", "."]
-
-    raw_symbol = symbol.replace("/", "")
-    req_start = _to_utc_ts(start) if start else None
-    req_end = _to_utc_ts(end) if end else None
-
-    for d in search_dirs:
-        prefixed = sorted(
-            glob.glob(f"{d}/{exchange.lower()}_{raw_symbol}_{interval}_*.feather")
-        )
-        bare = [
-            f
-            for f in sorted(glob.glob(f"{d}/{raw_symbol}_{interval}_*.feather"))
-            if f not in prefixed
-        ]
-        candidates = prefixed or (bare if len(bare) == 1 else [])
-        if not candidates:
-            continue
-
-        def rank(path: str):
-            rng = _feather_range(path)
-            if rng is None:
-                return (-1, pd.Timedelta(0), pd.Timestamp(0))
-            fs, fe = rng
-            if req_start is None:
-                return (0, pd.Timedelta(0), fe)
-            lo = req_start
-            hi = req_end if req_end is not None else fe
-            covers = fs <= lo and fe >= hi
-            overlap = min(fe, hi) - max(fs, lo)
-            return (1 if covers else 0, overlap, fe)
-
-        choice = max(candidates, key=rank)
-        if len(candidates) > 1:
-            print(
-                f"find_feather: {len(candidates)} matches; chose {choice}"
-            )
-        return choice
-    return None
-
-
 # ------------------------------------------------------------------
 # Runner-plugin resolution
 # ------------------------------------------------------------------
@@ -533,7 +453,7 @@ class BacktestRunner:
         df = bars
         if df is None and cfg.data_type != "l2":
             df, err = _discover_bars(
-                cfg, _to_utc_ts(cfg.start), _to_utc_ts(cfg.end)
+                cfg, to_utc_ts(cfg.start), to_utc_ts(cfg.end)
             )
             if err:
                 return _fail(job_id, err)
@@ -636,8 +556,8 @@ class BacktestRunner:
             engine.add_instrument(instrument)
 
             # Load L2 deltas and trades (loaders expect plain date strings)
-            start_str = str(_to_utc_ts(start))
-            end_str = str(_to_utc_ts(end)) if end is not None else None
+            start_str = str(to_utc_ts(start))
+            end_str = str(to_utc_ts(end)) if end is not None else None
             deltas = load_order_book_deltas(
                 instrument,
                 catalog_dir=cfg.data_dir,
@@ -674,8 +594,8 @@ class BacktestRunner:
         # Bar (OHLCV) Execution Mode
         # --------------------------------------------------------------
         else:
-            window_start = _to_utc_ts(start)
-            window_end = _to_utc_ts(end) if end is not None else None
+            window_start = to_utc_ts(start)
+            window_end = to_utc_ts(end) if end is not None else None
 
             if bars is None:
                 df, err = _discover_bars(cfg, window_start, window_end)

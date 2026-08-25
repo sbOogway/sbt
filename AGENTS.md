@@ -17,7 +17,8 @@ uv run python3 -m sbt --config config.toml --strategy overnight_drift
 ### Data Downloader
 ```bash
 # Incremental by default: re-running with the same --output extends the file
-# from its newest timestamp (--no-resume refetches; --page-limit overrides rows/call)
+# from its newest timestamp and renames it so the encoded date range matches
+# the actual contents (--no-resume refetches; --page-limit overrides rows/call)
 uv run python3 -m sbt.data --exchange hyperliquid --symbol XYZ-SP500/USDC:USDC --interval 1h --start 2026-03-18 --type ohlcv
 uv run python3 -m sbt.data --exchange hyperliquid --symbol XYZ-SP500/USDC:USDC --start 2026-03-18 --type funding
 ```
@@ -75,7 +76,7 @@ uv run python3 -m sbt --config config.toml --strategy key_breakout --train-val-s
 - **Vol scaling** is a plugin (`VolScalingPlugin`, Moreira & Muir rolling RV). Feeding modes: automatic daily close-to-close tracking (`vol_track_daily=True`) or manual `plugin.add_return()` when sampling follows a specific time/timezone. `vol_rebalance_freq` = `"daily"` (default) or `"monthly"` (weight refresh on month starts).
 - **Position sizing**: `risk_percent * current_equity * leverage * plugins.size_multiplier()` (compounding).
 - **FillModel**: removed. Slippage is fee-bps only (see above).
-- **Data files** (`.feather`) auto-detected by `{exchange}_{symbol}_{interval}_*.feather` pattern in `data/` or `./`. Unprefixed files are used only when unique. Multiple matches: best coverage of `[start, end]` wins (then overlap, then newest); chosen file is printed. Funding files matched by `*funding*` in path.
+- **Data files** (`.feather`) auto-detected by `{exchange}_{symbol}_{tag}_*.feather` pattern in `data/` or `./` (`tag` = bar interval, or `funding`). The whole naming contract is owned by `sbt/core/feather.py` — never hand-build or hand-parse these filenames. Unprefixed files are used only when unique. Multiple matches: best coverage of `[start, end]` wins (then overlap, then newest); chosen file is printed. Funding files matched by tag `funding`.
 - **Runner data seam**: `run(bars=…, funding=…)` accepts explicit frames — headless and deterministic, zero disk reads (this is what tests use). Default `None` keeps feather auto-discovery; explicit bars without a funding frame run without funding rather than searching disk.
 - **Tearsheets** saved to `reports/` and auto-opened via `webbrowser` unless `--no-open` (or config `open_report: false`).
 - `data/`, `reports/`, `.worktrees/`, `*.db` are gitignored.

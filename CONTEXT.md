@@ -29,3 +29,10 @@ plugins. Anchors are `file.py` + symbol names. Mechanics live in
   and merges their results (`expand`/`combine`/`summarize`).
 - **Window** — one execution slice `(label, start, end, df)`; `df` may
   include warm-up rows ahead of the trading start.
+- **Feather file convention** — the naming contract for data files:
+  `{exchange}_{symbol}_{tag}_{YYYYMMDD}[_{YYYYMMDD}].feather`, where
+  *tag* is the bar interval (OHLCV) or `funding` (funding rates).
+  Owned by `core/feather.py` (naming via `feather_path`, parsing via
+  `parse_range`, discovery/ranking via `find_feather`); a conventional
+  filename always states its contents' range — the downloader renames
+  on resume (`actual_range_name`) to keep name == content.
