@@ -66,7 +66,7 @@ uv run python3 -m sbt --config config.toml --strategy <snake_name> --no-open
 
 - Override venue/symbol/window on the CLI as needed (`--exchange --symbol --start --end`); `--no-open` skips the browser tab (tearsheet still lands in `reports/`).
 - Iterate ONLY on bugs (API misuse, wrong dtypes, missing columns, division errors) until the run completes and produces a tearsheet.
-- Parameter mining is FORBIDDEN: do not tweak parameters to make metrics look good. One exception: if the paper leaves key parameters unspecified, you may run ONE Optuna sweep capped at 8 trials via `uv run python3 -m sbt.client optimize ... --local` — and must disclose doing so in the report.
+- Parameter mining is FORBIDDEN: do not tweak parameters to make metrics look good. One exception: if the paper leaves key parameters unspecified, you may run ONE Optuna sweep capped at 8 trials via `run_optuna_study()` in `sbt/optimize/study.py` — and must disclose doing so in the report.
 - No tests/lint/typecheck exist in this repo; a clean full backtest IS the verification.
 
 ## 7. Report honestly

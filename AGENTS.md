@@ -1,7 +1,7 @@
 # SBT — Strategy Backtesting Tool
 
 > **Agents:** before modifying code, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —
-> module map, execution pipeline, plugin contracts, server protocol,
+> module map, execution pipeline, plugin contracts,
 > persistence schema, and gotchas. This file stays the quick ops manual.
 
 Backtesting framework on [nautilus-trader](https://nautilustrader.io) + [ccxt](https://ccxt.readthedocs.io/) for crypto perpetual futures.
@@ -21,35 +21,6 @@ uv run python3 -m sbt --config config.toml --strategy overnight_drift
 # the actual contents (--no-resume refetches; --page-limit overrides rows/call)
 uv run python3 -m sbt.data --exchange hyperliquid --symbol XYZ-SP500/USDC:USDC --interval 1h --start 2026-03-18 --type ohlcv
 uv run python3 -m sbt.data --exchange hyperliquid --symbol XYZ-SP500/USDC:USDC --start 2026-03-18 --type funding
-```
-
-### Server (Scheduler Daemon + Git Worktree Isolation)
-```bash
-uv run python3 -m sbt.server --workers 4 --port 5555 --worker-port 5556 --db sbt.db
-```
-
-### Client CLI
-```bash
-# Submit single strategy or batch of all strategies
-uv run python3 -m sbt.client submit --config config.toml --strategy overnight_drift
-uv run python3 -m sbt.client submit --config config.toml --all-strategies --wait
-
-# Status and results
-uv run python3 -m sbt.client status
-uv run python3 -m sbt.client results --job <job_id>
-
-# Optuna hyperparameter optimization
-#   --objective sharpe (default): 3-objective Pareto front (Sharpe + Trades + PnL)
-#   --objective sqn: pure single-objective maximization of Van Tharp's System Quality Number
-uv run python3 -m sbt.client optimize --config config.toml --strategy overnight_drift --trials 50 \
-  --objective sqn \
-  --param "rv_lookback=int(3,30)" \
-  --param "vol_max_scale=float(1.0,4.0)"
-
-# Train/validation holdout split (70% in-sample / 30% out-of-sample)
-# Runs both windows; top-level result metrics = out-of-sample; per-window
-# stats as in_sample_* / out_of_sample_* columns and one tearsheet per window.
-uv run python3 -m sbt --config config.toml --strategy key_breakout --train-val-split 0.7
 ```
 
 - `--strategy` defaults to `bitcoin_intraday_momentum` if omitted.
@@ -91,9 +62,9 @@ Adding a strategy-level plugin:
 
 1. Create `sbt/strategies/ohlc/<name>.py` (bar-driven) or `sbt/strategies/l2/<name>.py` (order-book-driven). Bar-driven: `<Name>Config(SBTBarStrategyConfig, kw_only=True, frozen=True)`; L2: `<Name>Config(SBTStrategyConfig, kw_only=True, frozen=True)` — the tiers already carry the shared fields (`instrument_id`, `bar_type` [bar tier only], `capital`, `leverage`, `backtest_start_date`, `active_from`, `risk_percent`, `subscribe_funding`), so declare only signal parameters and their defaults. Strategy class: `<Name>(SBTStrategy)` for bar mode, `<Name>(L2EventStrategy)` for L2. Set `plugins` defaults in the config (e.g. `plugins: tuple[str, ...] = ("vol_scaling",)`), instantiate `self.plugins = PluginHost.from_config(config)`, forward `self.plugins.on_bar(self, bar)` from `on_trading_bar`, and size via `open_position(side, price)` (stop-distance: `risk_quantity`). Note: `kw_only=True` is required on every config subclass — msgspec does not inherit it, and overriding an inherited field without it breaks struct construction.
 2. Register in `sbt/utils.py` `_STRATEGY_REGISTRY` with the module path under the strategy's folder.
-3. Run: `uv run python3 -m sbt --strategy <name>` or submit via `sbt.client`.
+3. Run: `uv run python3 -m sbt --strategy <name>`.
 
-Strategy parameters are **not** configured via `config.toml` — the `[strategy.*]` sections were removed; the strategy file is the single source of truth. Per-run overrides only happen through the optimizer (`--param`) / server (`with_overrides`).
+Strategy parameters are **not** configured via `config.toml` — the `[strategy.*]` sections were removed; the strategy file is the single source of truth. Per-run overrides only happen through the optimizer (`--param`).
 
 ## Structure
 
@@ -113,14 +84,6 @@ sbt/
 │   ├── runner.py           BacktestRunner (engine setup + execution, window splitting)
 │   ├── job.py              BacktestJob / BacktestResult models
 │   └── db.py               SQLite result store
-├── server/                 Scheduler daemon + git worktree supervisor
-│   ├── scheduler.py        ZMQ ROUTER scheduler & dispatcher
-│   ├── worker.py           ZMQ DEALER worker with isolated worktrees
-│   └── __main__.py         python -m sbt.server CLI
-├── client/                 Client CLI
-│   ├── client.py           ZMQ SbtClient helper
-│   ├── cli.py              Subcommand handlers
-│   └── __main__.py         python -m sbt.client CLI
 ├── optimize/               Optuna multi-objective optimization
 │   ├── param_parser.py     Parameter space specification parser
 │   ├── study.py            Optuna study coordinator (Sharpe + Trades + PnL)
@@ -149,12 +112,11 @@ config.toml                 Run + strategy parameters
 ## Gotchas
 
 - `BarDataWrangler` (nautilus 1.230.0) raises "buffer source array is read-only" for every input shape — use `load_bars()` in `sbt/core/runner.py` instead.
-- Server workers run from `.worktrees/worker-N` checkouts; until changes are committed, re-seed them after edits: `cp -a sbt/. .worktrees/worker-0/sbt/`.
 
 ## Dependencies
 
 - Python >=3.14 (`.python-version`)
-- `nautilus-trader[visualization]`, `ccxt`, `pyzmq`, `optuna` — managed via `uv`
+- `nautilus-trader[visualization]`, `ccxt`, `optuna` — managed via `uv`
 
 ## Agent skills
 

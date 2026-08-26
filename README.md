@@ -1,6 +1,6 @@
 # SBT — Strategy Backtesting Tool
 
-Modular crypto perpetual futures backtesting framework built on [Nautilus Trader](https://nautilustrader.io) + [CCXT](https://ccxt.readthedocs.io/). Supports concurrent execution with git worktree isolation, Optuna multi-objective optimization, and interactive tearsheet reporting.
+Modular crypto perpetual futures backtesting framework built on [Nautilus Trader](https://nautilustrader.io) + [CCXT](https://ccxt.readthedocs.io/). Supports Optuna multi-objective optimization and interactive tearsheet reporting.
 
 ---
 
@@ -55,45 +55,13 @@ Available strategies: `overnight_drift`, `bitcoin_intraday_momentum`, `glucksman
 
 ---
 
-### 3. Concurrent Client-Server Backtesting
-
-Run multiple backtests in parallel across isolated git worktrees (`.worktrees/`):
-
-#### Start the Server Daemon
-```bash
-# Launch scheduler with 4 isolated workers
-uv run python3 -m sbt.server --workers 4 --port 5555 --db sbt.db
-```
-
-#### Submit Jobs via Client CLI
-```bash
-# Submit a single job
-uv run python3 -m sbt.client submit --config config.toml --strategy overnight_drift
-
-# Submit all strategies defined in config.toml concurrently and wait for completion
-uv run python3 -m sbt.client submit --config config.toml --all-strategies --wait
-
-# Check worker pool and job status
-uv run python3 -m sbt.client status
-
-# Inspect full statistics for a completed job
-uv run python3 -m sbt.client results --job <job_id>
-```
-
----
-
-### 4. Optuna Multi-Objective Optimization (`sbt.client optimize`)
+### 3. Optuna Multi-Objective Optimization
 
 Find the optimal strategy parameters by simultaneously maximizing **Sharpe Ratio**, **Total Trades**, and **Net PnL** (producing an interactive 3D Pareto frontier):
 
 ```bash
-uv run python3 -m sbt.client optimize \
-  --config config.toml \
-  --strategy overnight_drift \
-  --trials 50 \
-  --param "rv_lookback=int(3,30)" \
-  --param "vol_max_scale=float(1.0,4.0)" \
-  --param "entry_time=cat(18:00,19:00,20:00,21:00)"
+# The optimizer module lives in sbt/optimize/; no CLI entry point exists yet.
+# Call run_optuna_study() from Python, or wire up a new CLI command.
 ```
 
 Parameter syntax:
@@ -125,4 +93,4 @@ tick_size = 0.01
 Strategy parameters are **not** configured via `config.toml` — each
 strategy file (`sbt/strategies/...`) is the single source of truth for
 its parameters and defaults. Per-run overrides happen through the
-optimizer (`--param`) or the server (`with_overrides`).
+optimizer (`--param`).

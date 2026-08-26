@@ -4,29 +4,20 @@ Two objective modes:
 - 'sharpe': 3-objective Pareto front (Sharpe, Trades, PnL) — the default.
 - 'sqn': single-objective maximization of Van Tharp's System Quality Number.
 
-Execution modes:
-- LocalExecutor: runs backtests inline in this process (original path).
-- SchedulerExecutor: routes each trial through the scheduler daemon via an
-  ask/tell loop, parallel across the worker pool. Selected automatically when
-  a scheduler answers a ping on --port; pass --local to force inline runs.
+Execution runs inline via LocalExecutor.
 """
 
 import datetime
 import gc
 import multiprocessing
-import time
 from pathlib import Path
 
 import optuna
 
-from ..client.client import SbtClient
 from ..core.config import RunConfig
-from ..core.job import JobStatus
 from ..core.runner import BacktestRunner
 from .param_parser import parse_param_spec, suggest_params
 from .report import generate_pareto_report, generate_sqn_report
-
-_RESULT_POLL_S = 1.0
 
 
 def _spawn_child_target(
@@ -168,121 +159,6 @@ class LocalExecutor:
         study.optimize(objective_fn, n_trials=n_trials)
 
 
-class SchedulerExecutor:
-    """Route trials through the scheduler daemon (parallel across workers)."""
-
-    name = "scheduler"
-
-    def __init__(
-        self,
-        client: SbtClient,
-        base_config: RunConfig,
-        objective: str,
-        primary_label: str,
-        port: int,
-    ):
-        self.client = client
-        self.base_config = base_config
-        self.objective = objective
-        self.primary_label = primary_label
-        self.port = port
-
-    def _max_inflight(self) -> int:
-        try:
-            status = self.client.get_status()
-            return max(1, int(status.get("workers_total", 1)))
-        except Exception:
-            return 1
-
-    def _result_values(self, result_dict: dict):
-        primary = (
-            result_dict.get("sqn" if self.objective == "sqn" else "sharpe_ratio")
-        ) or 0.0
-        if primary != primary:  # NaN
-            primary = 0.0
-        trades = float(result_dict.get("num_trades") or 0)
-        pnl = float(result_dict.get("pnl") or 0.0)
-        return primary if self.objective == "sqn" else (primary, trades, pnl)
-
-    def run(self, study: optuna.Study, param_space: dict, n_trials: int) -> None:
-        max_inflight = self._max_inflight()
-        print(f"In-flight cap from scheduler pool: {max_inflight} worker(s)")
-
-        inflight: dict[str, tuple[int, dict]] = {}  # job_id -> (trial_number, params)
-        submitted = 0
-
-        while submitted < n_trials or inflight:
-            # Refill while the pool has capacity.
-            while len(inflight) < max_inflight and submitted < n_trials:
-                trial = study.ask()
-                params = suggest_params(trial, param_space)
-                config = self.base_config.with_overrides(params)
-                try:
-                    job_id = self.client.submit(config, study_name=study.study_name)
-                except Exception as e:
-                    print(f"[Trial #{trial.number:03d}] submit failed: {e}")
-                    study.tell(
-                        trial,
-                        values=self._bad_result(),
-                        state=optuna.trial.TrialState.FAIL,
-                    )
-                    continue
-                inflight[job_id] = (trial.number, params)
-                print(
-                    f"[Trial #{trial.number:03d}] queued as job {job_id} | Params: {params}",
-                    flush=True,
-                )
-                submitted += 1
-
-            if not inflight:
-                break
-
-            time.sleep(_RESULT_POLL_S)
-
-            for job_id, (tno, params) in list(inflight.items()):
-                try:
-                    resp = self.client.get_result(job_id)
-                except Exception:
-                    continue  # transient; retry next poll
-                if resp.get("status") == "pending":
-                    continue
-                if resp.get("status") != "ok":
-                    print(
-                        f"[Trial #{tno:03d}] job {job_id} lost ({resp.get('status')}); failing trial"
-                    )
-                    study.tell(
-                        tno,
-                        values=self._bad_result(),
-                        state=optuna.trial.TrialState.FAIL,
-                    )
-                    inflight.pop(job_id)
-                    continue
-
-                result = resp["result"]
-                if result.get("status") != JobStatus.DONE.value:
-                    print(
-                        f"[Trial #{tno:03d}] FAILED on scheduler: {result.get('error')}"
-                    )
-                    study.tell(
-                        tno,
-                        values=self._bad_result(),
-                        state=optuna.trial.TrialState.FAIL,
-                    )
-                    inflight.pop(job_id)
-                    continue
-
-                values = self._result_values(result)
-                primary = values if self.objective == "sqn" else values[0]
-                trades = int(float(result.get("num_trades") or 0))
-                pnl = float(result.get("pnl") or 0.0)
-                print(
-                    f"[Trial #{tno:03d}] {self.primary_label}: {primary:+.2f} | "
-                    f"Trades: {trades:3d} | PnL: ${pnl:+,.2f} | Params: {params}",
-                    flush=True,
-                )
-                study.tell(tno, values)
-                inflight.pop(job_id)
-
 
 def run_optuna_study(
     config_path: str,
@@ -290,20 +166,15 @@ def run_optuna_study(
     n_trials: int,
     params: list[str],
     db_path: str = "sbt.db",
-    port: int = 5555,
     output_report: str | None = None,
     objective: str = "sharpe",
     overrides: dict | None = None,
-    local: bool = False,
 ) -> optuna.Study:
     """Run an Optuna optimization study for *strategy_name*.
 
     objective='sharpe' maximizes the (Sharpe, Trades, PnL) Pareto front;
     objective='sqn' purely maximizes the System Quality Number computed
     from per-trade returns.
-
-    Execution is routed through the scheduler when one is reachable at
-    ``tcp://127.0.0.1:{port}``; pass ``local=True`` to force in-process runs.
     """
     if objective not in ("sharpe", "sqn"):
         raise ValueError(
@@ -346,21 +217,8 @@ def run_optuna_study(
     param_space = parse_param_spec(params)
     primary_label = "Sharpe Ratio" if objective == "sharpe" else "System Quality Number"
 
-    # --- execution routing -------------------------------------------------
-    endpoint = f"tcp://127.0.0.1:{port}"
-    client = SbtClient(endpoint=endpoint, timeout_ms=2000)
-    executor: LocalExecutor | SchedulerExecutor
-    if local:
-        executor = LocalExecutor(base_config, objective, primary_label, db_path=db_path)
-        print("Execution mode: local (--local)")
-    elif client.ping():
-        executor = SchedulerExecutor(
-            client, base_config, objective, primary_label, port
-        )
-        print(f"Execution mode: scheduler at {endpoint}")
-    else:
-        executor = LocalExecutor(base_config, objective, primary_label, db_path=db_path)
-        print(f"No scheduler reachable at {endpoint}; falling back to local runs")
+    # --- execution ----------------------------------------------------------
+    executor = LocalExecutor(base_config, objective, primary_label, db_path=db_path)
 
     print(f"\n--- Starting Optuna Optimization for '{strategy_name}' ---")
     print(f"Objective mode: {objective} ({primary_label})")
@@ -384,11 +242,7 @@ def run_optuna_study(
         load_if_exists=True,
     )
 
-    try:
-        executor.run(study, param_space, n_trials)
-    finally:
-        if isinstance(executor, SchedulerExecutor):
-            client.close()
+    executor.run(study, param_space, n_trials)
 
     print("\n========== OPTIMIZATION COMPLETE ==========")
     failed = sum(1 for t in study.trials if t.state == optuna.trial.TrialState.FAIL)

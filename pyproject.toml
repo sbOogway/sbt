@@ -10,8 +10,6 @@ dependencies = [
     "jinja2>=3.1.0",
     "nautilus-trader[visualization]>=1.230.0",
     "optuna>=4.9.0",
-    "python-multipart>=0.0.9",
-    "pyzmq>=27.2.0",
     "uvicorn[standard]>=0.30.0",
 ]
 

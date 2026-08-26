@@ -8,25 +8,17 @@ covers mechanics ("how does X work", "what breaks if I touch Y"). Anchors are
 ## 1. System overview
 
 Crypto perpetual-futures backtesting on nautilus-trader + ccxt data
-ingestion, an optional distributed scheduler, and Optuna hyperparameter
-optimization.
+ingestion and Optuna hyperparameter optimization.
 
 ```
  python -m sbt           single run ─┐
- python -m sbt.client    submit/optimize/status ─┐
-                                 ZMQ (DEALER)    │
-                                                 ▼
-                                      Scheduler (ROUTER :5555)
-                                                 │ JOB dispatch on :5556
-                                                 ▼
-                       Workers ×N (DEALER, isolated git worktrees)
-                                                 │
-                             BacktestRunner ──► BacktestEngine (nautilus)
-                                                 │
-                                   BacktestResult (JSON-safe dict)
-                          ┌──────────────────────┼──────────────────┐
-                    tearsheets             ResultStore          RESULT msg
-                   reports/*.html         sqlite sbt.db      back to scheduler
+                                     ▼
+                        BacktestRunner ──► BacktestEngine (nautilus)
+                                     │
+                           BacktestResult (JSON-safe dict)
+                      ┌───────────────┼──────────────────┐
+                tearsheets        ResultStore
+               reports/*.html    sqlite sbt.db
 ```
 
 Every execution path — CLI, server job, optimizer trial — converges on
@@ -60,11 +52,7 @@ code path per data mode (`bar`, `l2`) inside `_run_window`.
 | `sbt/strategies/ohlc/*.py`, `sbt/strategies/l2/*.py` | Concrete strategies (see §5) | registry names |
 | `sbt/data.py` | ccxt → feather downloader | `fetch_ohlcv`, `fetch_funding_rates`, `_paginate`, `main` |
 | `sbt/report.py` | HTML tearsheet + TV chart | `print_report` |
-| `sbt/server/scheduler.py` | ZMQ ROUTER scheduler/dispatcher | `Scheduler` |
-| `sbt/server/worker.py` | DEALER worker in git worktree | `Worker`, `ensure_worktree` |
-| `sbt/client/client.py` | DEALER client helper | `SbtClient._request` |
-| `sbt/client/cli.py` / `__main__.py` | Client subcommands | `cmd_submit/cmd_status/cmd_results/cmd_optimize` |
-| `sbt/optimize/study.py` | Optuna orchestration + executors | `run_optuna_study`, `LocalExecutor`, `SchedulerExecutor` |
+| `sbt/optimize/study.py` | Optuna orchestration + local executor | `run_optuna_study`, `LocalExecutor` |
 | `sbt/optimize/param_parser.py` | Param spec grammar | `parse_param_spec`, `suggest_params` |
 | `sbt/optimize/report.py` | Pareto/SQN HTML reports | `generate_pareto_report`, `generate_sqn_report` |
 **Import graph rule:** `plugins.base` imports `core.job` only;
@@ -316,54 +304,6 @@ as-is; slicing is the plugin's job).
   first-class columns (`in_sample_*` / `out_of_sample_*`); durations
   summed; positions/fills/stats come from OOS.
 
-## 7. Server architecture
-
-Topology: scheduler binds ROUTER on the client endpoint (:5555 default)
-and ROUTER on the worker endpoint (:5556). Workers connect DEALER with
-identity `worker-N`. Clients use DEALER sending `[b"", payload]` and read
-the LAST frame of the reply. (History: REQ never worked here — its empty
-delimiter frame broke the scheduler's `[identity, payload]` framing; the
-scheduler now tolerates both by taking `msg_parts[2] if len >= 3 else
-msg_parts[1]`.)
-
-Client actions (`Scheduler._handle_client_req`): `submit`, `submit_batch`,
-`status`, `get_result`, `list_results`, `ping`. Replies are JSON with
-`status` of `ok` / `pending` / `not_found` / `error`.
-
-Worker protocol (`Scheduler._handle_worker_msg`): sends `READY`, then per
-job `ACK{job_id}` immediately on receipt (so the ACK timer measures
-delivery, not execution), then `RESULT{job_id, result}`; answers `PING`
-with `PONG`; receives `JOB{job}`, `PING`, `SHUTDOWN`.
-
-Durability model — every sweep runs each poll tick (500 ms):
-
-| Sweep | Env knob (default) | Behavior |
-|---|---|---|
-| Startup reconcile | — | stale RUNNING→PENDING; enqueue pending FIFO by submitted_at |
-| `_check_acks` | SBT_ACK_TIMEOUT (30s) | no ACK in time → kill worker BEFORE requeue, respawn |
-| `_heartbeat` | SBT_HEARTBEAT_INTERVAL (10s), SBT_MAX_MISSED_PONGS (3) | PING busy workers; reap after missed pongs |
-| `_check_job_timeouts` | job.timeout_seconds (3600) | past budget → treat as worker death |
-| `_check_child_procs` | — | exited Popen → death handling |
-
-Death handling `_handle_worker_death`: kill proc → locate its job via
-busy/awaiting_ack maps → `_requeue_or_fail`: requeue at queue FRONT while
-`attempts < MAX_ATTEMPTS` (env SBT_MAX_ATTEMPTS=2), else FAILED.
-RESULT ownership check: results from a non-owner
-(`active_owner(job_id) != sender`) are dropped — this is what makes
-requeue races safe.
-
-Worktree isolation (`ensure_worktree`, worker.py): creates
-`.worktrees/{worker_id}` via `git worktree add --detach HEAD`, symlinks
-repo `data/`, creates `reports/`. Returns True only for a real checkout;
-mkdir fallback logs a DEGRADED-isolation warning. Workers spawn with
-`cwd=worktree` and PYTHONPATH prefixed with the worktree, so
-`python -m sbt.server.worker` imports worktree code. Consequence:
-uncommitted changes are invisible to workers until committed or re-seeded
-(`cp -a sbt/. .worktrees/worker-0/sbt/`). Worker test hooks: env
-SBT_JOB_DELAY_S sleeps before running (deterministic interruption tests);
-during execution it chdirs into the worktree and points data_dir at its
-symlink.
-
 ## 8. Persistence
 
 SQLite `sbt.db` via `ResultStore`; same file doubles as Optuna storage
@@ -422,16 +362,8 @@ Entry: `optimize/study.py::run_optuna_study`. Objective modes:
   positions' `realized_return`; None under 2 trades); report
   `generate_sqn_report`.
 
-Executors (ask/tell loop over `study.ask()/study.tell()`):
-
-- `LocalExecutor`: inline sequential runs; a crashed trial raises
-  `optuna.TrialPruned` so the study never records (0,0,0).
-- `SchedulerExecutor`: submits each trial as a scheduler job
-  (`study_name` tags jobs), caps inflight at workers_total, polls
-  `get_result` every 1s; FAILED/lost jobs → `TrialState.FAIL`.
-
-Routing: `--local` forces local; otherwise ping `tcp://127.0.0.1:{port}`
-— reachable → scheduler, else local fallback. Storage:
+Executor: `LocalExecutor` runs trials inline (trial #0 in-process,
+later trials forked via spawn-multiprocessing). Storage:
 `sqlite:///{db_path}` (shared with ResultStore), TPESampler, study name
 `opt_{strategy}_{objective}_{YYYYmmdd_HHMMSS}`, load_if_exists. Report
 generation is skipped when no trial reached COMPLETE.
@@ -489,28 +421,21 @@ resolution; unknown exchanges omit the chart. With a train/val split,
    (§4.2). Never reintroduce FillModel — it double-counts.
 5. **Funding never flows through engine PnL**; it is a side-channel
    surfaced as `funding_pnl` (positive = paid).
-6. **Worker code isolation**: `.worktrees/worker-N` run committed code.
-   Re-seed after edits or commit before expecting workers to see changes.
-7. **Client framing**: use DEALER `[b"", payload]` (`SbtClient`); REQ
-   lockstep does not survive the ROUTER reply framing.
-8. **Kill-before-requeue ordering** in ACK timeout handling prevents
-   double-execution; preserve it when touching `_check_acks`.
-9. **Split boundary bar belongs to OOS**; IS ends one bar interval early
+6. **Split boundary bar belongs to OOS**; IS ends one bar interval early
    (`TrainValSplit.expand`). Warm-up bars load before window starts but
    cannot trade (`active_from` gate).
-10. **Plugin params stay flat** on strategy configs; plugins declare
-    `required_config_fields` and validation raises — do not add nested
-    param objects or silent defaults.
-11. **Results schema is fields-derived**: `BacktestResult` is the single
-    source of truth (`core.job.result_field_specs`); never hand-write a
-    column list, codec, or migration for it. Legacy v2 columns
-    (`equity_curve_json`) may linger in old DBs — don't read them.
-12. **JSON boundary discipline**: engine outputs must pass
-    `_jsonable_records` before ZMQ/DB/JSON serialization.
-13. **Deferred imports exist to break cycles** (§2 import-graph rule).
+7. **Plugin params stay flat** on strategy configs; plugins declare
+   `required_config_fields` and validation raises — do not add nested
+   param objects or silent defaults.
+8. **Results schema is fields-derived**: `BacktestResult` is the single
+   source of truth (`core.job.result_field_specs`); never hand-write a
+   column list, codec, or migration for it. Legacy v2 columns
+   (`equity_curve_json`) may linger in old DBs — don't read them.
+9. **JSON boundary discipline**: engine outputs must pass
+   `_jsonable_records` before DB/JSON serialization.
+10. **Deferred imports exist to break cycles** (§2 import-graph rule).
     `utils.interval_delta` inside `TrainValSplit.expand`,
     plugin registry lookup inside `PluginHost.from_config`.
-14. Environment: Python >= 3.14, managed by uv; no tests/lint/CI exist —
+11. Environment: Python >= 3.14, managed by uv; no tests/lint/CI exist —
     verify changes by running strategies end-to-end.
-15. Gitignored: `data/`, `reports/` (incl. artifacts), `.worktrees/`,
-    `sbt.db`.
+12. Gitignored: `data/`, `reports/` (incl. artifacts), `sbt.db`.
