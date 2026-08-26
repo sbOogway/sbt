@@ -8,7 +8,7 @@
       <th onclick="sortTable(0)">Strategy</th>
       <th onclick="sortTable(1)">Symbol</th>
       <th onclick="sortTable(2,'num')">Sharpe</th>
-      <th onclick="sortTable(3,'num')">PnL</th>
+      <th onclick="sortTable(3,'num')">PnL %</th>
       <th onclick="sortTable(4,'num')">Trades</th>
       <th onclick="sortTable(5,'num')">SQN</th>
       <th onclick="sortTable(6,'num')">Duration</th>
@@ -21,8 +21,8 @@
       <td><a href="/results/{{ r.job_id }}">{{ r.strategy }} <span style="color:#94a3b8;font-size:0.8em;">{{ r.display_id[:8] }}</span></a></td>
       <td>{{ r.symbol }}</td>
       <td data-val="{{ r.sharpe or 0 }}">{{ "%.2f"|format(r.sharpe or 0) }}</td>
-      <td data-val="{{ r.pnl or 0 }}" class="{{ 'positive' if (r.pnl or 0) > 0 else 'negative' if (r.pnl or 0) < 0 else '' }}">
-        {% if r.pnl is not none %}${{ "%.2f"|format(r.pnl) }}{% else %}&mdash;{% endif %}
+      <td data-val="{{ r.pnl_pct or 0 }}" class="{{ 'positive' if (r.pnl_pct or 0) > 0 else 'negative' if (r.pnl_pct or 0) < 0 else '' }}">
+        {% if r.pnl_pct is not none %}{{ "%.2f"|format(r.pnl_pct) }}%{% else %}&mdash;{% endif %}
       </td>
       <td data-val="{{ r.trades or 0 }}">{{ r.trades or 0 }}</td>
       <td data-val="{{ r.sqn or 0 }}">{{ "%.2f"|format(r.sqn or 0) }}</td>

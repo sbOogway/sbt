@@ -37,6 +37,9 @@ def list_results_for_dashboard(conn: sqlite3.Connection) -> list[dict]:
     results = []
     for row in rows:
         cfg = json.loads(row["config_json"])
+        capital = float(cfg.get("capital", 0) or 0)
+        pnl = row["pnl"]
+        pnl_pct = (pnl / capital * 100) if capital and pnl is not None else None
         results.append(
             {
                 "job_id": row["job_id"],
@@ -45,7 +48,8 @@ def list_results_for_dashboard(conn: sqlite3.Connection) -> list[dict]:
                 "strategy": row["strategy_name"],
                 "symbol": cfg.get("symbol", ""),
                 "sharpe": row["sharpe_ratio"],
-                "pnl": row["pnl"],
+                "pnl": pnl,
+                "pnl_pct": pnl_pct,
                 "trades": row["num_trades"],
                 "sqn": row["sqn"],
                 "duration": row["duration_seconds"],
@@ -130,6 +134,10 @@ def get_result_detail(
         if tearsheet_file is None and not row["run_id"]:
             tearsheet_file = _find_tearsheet_by_job(reports_dir, row["submitted_at"])
 
+    capital = float(cfg.get("capital", 0) or 0)
+    pnl = row["pnl"]
+    pnl_pct = (pnl / capital * 100) if capital and pnl is not None else None
+
     return {
         "job_id": row["job_id"],
         "run_id": row["run_id"],
@@ -139,7 +147,8 @@ def get_result_detail(
         "symbol": cfg.get("symbol", ""),
         "interval": cfg.get("interval", ""),
         "sharpe": row["sharpe_ratio"],
-        "pnl": row["pnl"],
+        "pnl": pnl,
+        "pnl_pct": pnl_pct,
         "trades": row["num_trades"],
         "sqn": row["sqn"],
         "duration": row["duration_seconds"],

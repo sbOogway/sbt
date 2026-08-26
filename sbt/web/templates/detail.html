@@ -15,7 +15,7 @@
       </div>
       <div class="metric-card">
         <div class="label">Net PnL</div>
-        <div class="value {% if (result.pnl or 0) > 0 %}positive{% elif (result.pnl or 0) < 0 %}negative{% endif %}">{% if result.pnl is not none %}${{ "%.2f"|format(result.pnl) }}{% else %}&mdash;{% endif %}</div>
+        <div class="value {% if (result.pnl or 0) > 0 %}positive{% elif (result.pnl or 0) < 0 %}negative{% endif %}">{% if result.pnl_pct is not none %}{{ "%.2f"|format(result.pnl_pct) }}%{% else %}&mdash;{% endif %}</div>
       </div>
       <div class="metric-card">
         <div class="label">Total Trades</div>

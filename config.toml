@@ -10,5 +10,5 @@ taker_fee = 0.00055
 settle_currency = "USDT"
 slippage_ticks = 2
 tick_size = 0.1
-data_dir = "../../data"
+data_dir = "data"
 

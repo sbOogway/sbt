@@ -109,6 +109,7 @@ class TestListResultsForDashboard:
             "symbol",
             "sharpe",
             "pnl",
+            "pnl_pct",
             "trades",
             "sqn",
             "duration",
