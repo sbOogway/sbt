@@ -6,13 +6,12 @@ Usage::
     uv run python3 -m sbt.client submit --config config.toml --all-strategies --wait
     uv run python3 -m sbt.client status
     uv run python3 -m sbt.client results --job <id>
-    uv run python3 -m sbt.client compare --jobs <id1,id2,...>
     uv run python3 -m sbt.client optimize --config config.toml --strategy overnight_drift --trials 20 --param "rv_lookback=int(3,30)"
 """
 
 import argparse
 
-from .cli import cmd_compare, cmd_optimize, cmd_results, cmd_status, cmd_submit
+from .cli import cmd_optimize, cmd_results, cmd_status, cmd_submit
 
 
 def main():
@@ -62,19 +61,6 @@ def main():
     sub_results.add_argument("--job", help="Specific job ID to inspect")
     sub_results.add_argument("--study", help="Filter by Optuna study name")
     sub_results.set_defaults(func=cmd_results)
-
-    # compare
-    sub_compare = subparsers.add_parser(
-        "compare", help="Compare multiple backtest runs"
-    )
-    sub_compare.add_argument("--jobs", help="Comma-separated job IDs to compare")
-    sub_compare.add_argument(
-        "--study", help="Study name to compare all completed jobs from"
-    )
-    sub_compare.add_argument(
-        "--output", default="reports/compare.html", help="Output comparison HTML path"
-    )
-    sub_compare.set_defaults(func=cmd_compare)
 
     # optimize
     sub_opt = subparsers.add_parser(

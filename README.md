@@ -105,19 +105,6 @@ Generates and opens `reports/pareto_report.html` with an interactive Plotly 3D s
 
 ---
 
-### 5. Multi-Strategy Comparison Dashboard (`sbt.client compare`)
-
-Compare performance metrics and equity returns across multiple runs side-by-side:
-
-```bash
-# Compare specific completed job IDs
-uv run python3 -m sbt.client compare --jobs a3f2c1,b7e4d9,c1a8f3
-
-# Output saved to reports/compare.html and auto-opened in browser
-```
-
----
-
 ## Configuration (`config.toml`)
 
 ```toml

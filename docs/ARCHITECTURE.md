@@ -63,12 +63,10 @@ code path per data mode (`bar`, `l2`) inside `_run_window`.
 | `sbt/server/scheduler.py` | ZMQ ROUTER scheduler/dispatcher | `Scheduler` |
 | `sbt/server/worker.py` | DEALER worker in git worktree | `Worker`, `ensure_worktree` |
 | `sbt/client/client.py` | DEALER client helper | `SbtClient._request` |
-| `sbt/client/cli.py` / `__main__.py` | Client subcommands | `cmd_submit/cmd_status/cmd_results/cmd_compare/cmd_optimize` |
+| `sbt/client/cli.py` / `__main__.py` | Client subcommands | `cmd_submit/cmd_status/cmd_results/cmd_optimize` |
 | `sbt/optimize/study.py` | Optuna orchestration + executors | `run_optuna_study`, `LocalExecutor`, `SchedulerExecutor` |
 | `sbt/optimize/param_parser.py` | Param spec grammar | `parse_param_spec`, `suggest_params` |
 | `sbt/optimize/report.py` | Pareto/SQN HTML reports | `generate_pareto_report`, `generate_sqn_report` |
-| `sbt/compare/dashboard.py` | Multi-job comparison dashboard | `generate_comparison_dashboard` |
-
 **Import graph rule:** `plugins.base` imports `core.job` only;
 `core.runner` imports `utils` (which lazily imports strategies) and
 `plugins`; strategies import `plugins` + `strategies.base`. Deferred imports
@@ -474,8 +472,7 @@ into `reports/*.html` and opens it unless suppressed
 block maps exchange → TV prefix (BINANCE:, BYBIT:, ...) and interval → TV
 resolution; unknown exchanges omit the chart. With a train/val split,
 `__main__.py` generates one tearsheet per window using
-`runner.window_engines`. Comparison dashboard across jobs:
-`compare/dashboard.py::generate_comparison_dashboard`. Optimizer reports:
+`runner.window_engines`. Optimizer reports:
 `optimize/report.py` (Pareto 3D / SQN), also honoring open_report.
 
 ## 12. Invariants & gotchas (read before editing)

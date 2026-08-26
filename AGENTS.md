@@ -38,9 +38,6 @@ uv run python3 -m sbt.client submit --config config.toml --all-strategies --wait
 uv run python3 -m sbt.client status
 uv run python3 -m sbt.client results --job <job_id>
 
-# Multi-strategy comparison dashboard
-uv run python3 -m sbt.client compare --jobs <id1,id2,id3>
-
 # Optuna hyperparameter optimization
 #   --objective sharpe (default): 3-objective Pareto front (Sharpe + Trades + PnL)
 #   --objective sqn: pure single-objective maximization of Van Tharp's System Quality Number
@@ -128,8 +125,6 @@ sbt/
 │   ├── param_parser.py     Parameter space specification parser
 │   ├── study.py            Optuna study coordinator (Sharpe + Trades + PnL)
 │   └── report.py           Plotly 3D Pareto frontier HTML report
-├── compare/                Multi-strategy comparison dashboard
-│   └── dashboard.py        Side-by-side metric tables + comparison charts
 └── strategies/
     ├── base.py               SBTStrategy base class + FundingTracker
     ├── ohlc/                 Bar-driven strategies (SBTStrategy subclasses)

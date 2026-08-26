@@ -205,34 +205,6 @@ def cmd_results(args: argparse.Namespace) -> None:
         print(_format_table(headers, rows))
 
 
-def cmd_compare(args: argparse.Namespace) -> None:
-    from ..compare.dashboard import generate_comparison_dashboard
-
-    client = SbtClient(endpoint=f"tcp://127.0.0.1:{args.port}")
-    if not client.ping():
-        print(f"ERROR: Cannot connect to SBT Scheduler at tcp://127.0.0.1:{args.port}.")
-        sys.exit(1)
-
-    if args.jobs:
-        job_ids = [j.strip() for j in args.jobs.split(",")]
-        results = []
-        for jid in job_ids:
-            resp = client.get_result(jid)
-            if resp.get("status") == "ok":
-                results.append(resp["result"])
-            else:
-                print(f"Warning: Result for job {jid} not found or incomplete.")
-    else:
-        results = client.list_results(study_name=args.study)
-
-    if not results:
-        print("No results to compare.")
-        return
-
-    output_path = generate_comparison_dashboard(results, output_path=args.output)
-    print(f"Comparison dashboard generated: {output_path}")
-
-
 def cmd_optimize(args: argparse.Namespace) -> None:
     from ..optimize.study import run_optuna_study
 
