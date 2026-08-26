@@ -11,19 +11,21 @@ Crypto perpetual-futures backtesting on nautilus-trader + ccxt data
 ingestion and Optuna hyperparameter optimization.
 
 ```
- python -m sbt           single run ─┐
-                                     ▼
-                        BacktestRunner ──► BacktestEngine (nautilus)
-                                     │
-                           BacktestResult (JSON-safe dict)
-                      ┌───────────────┼──────────────────┐
-                tearsheets        ResultStore
-               reports/*.html    sqlite sbt.db
+ sbt backtest          single run ─┐
+                                  ▼
+                     BacktestRunner ──► BacktestEngine (nautilus)
+                                  │
+                        BacktestResult (JSON-safe dict)
+                   ┌───────────────┼──────────────────┘
+             tearsheets        ResultStore
+            reports/*.html    sqlite sbt.db
 ```
 
 Every execution path — CLI, server job, optimizer trial — converges on
-`core/runner.py::BacktestRunner.run()`. There is exactly one engine-setup
-code path per data mode (`bar`, `l2`) inside `_run_window`.
+`core/runner.py::BacktestRunner.run()`. The CLI dispatches through
+`sbt/cli/main.py` → `sbt/cli/<command>.py` → the relevant module.
+There is exactly one engine-setup code path per data mode (`bar`, `l2`)
+inside `_run_window`.
 
 **Data flow (bar mode):**
 `data/*.feather` → `find_feather()` → `pd.read_feather` → date filter →
@@ -35,7 +37,14 @@ code path per data mode (`bar`, `l2`) inside `_run_window`.
 
 | Path | Responsibility | Key symbols |
 |---|---|---|
-| `sbt/__main__.py` | CLI entry: parse config, run, print report | `RunConfig.parse_cli`, `BacktestRunner.run` |
+| `sbt/__main__.py` | CLI shim (delegates to `sbt.cli.main`) | `from .cli.main import main; main()` |
+| `sbt/cli/__init__.py` | CLI package marker | |
+| `sbt/cli/args.py` | Shared argparse argument groups | `add_backtest_args`, `add_data_args`, `add_web_args` |
+| `sbt/cli/main.py` | Parser assembly + top-level dispatch | `build_parser`, `main` |
+| `sbt/cli/backtest.py` | `sbt backtest` subcommand | `register`, `run` |
+| `sbt/cli/data.py` | `sbt data` subcommand | `register`, `run` |
+| `sbt/cli/web.py` | `sbt web` subcommand | `register`, `run` |
+| `sbt/cli/optimize.py` | `sbt optimize` subcommand | `register`, `run` |
 | `sbt/core/config.py` | Run configuration; TOML/CLI/JSON codec | `RunConfig`, `_coerce` |
 | `sbt/core/job.py` | Job/result models + JSON codecs | `BacktestJob`, `BacktestResult`, `JobStatus` |
 | `sbt/core/runner.py` | Engine setup + execution + windowing | `BacktestRunner`, `run/_run_windows/_run_window`, `load_bars`, `resolve_runner_plugin`, `INLINE_ROW_BUDGET` |

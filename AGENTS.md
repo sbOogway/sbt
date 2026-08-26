@@ -8,9 +8,9 @@ Backtesting framework on [nautilus-trader](https://nautilustrader.io) + [ccxt](h
 
 ## Commands
 
-### Single Backtest (Backward compatible)
+### Single Backtest
 ```bash
-uv run python3 -m sbt --config config.toml --strategy overnight_drift
+sbt backtest --config config.toml --strategy overnight_drift
 # --no-open skips auto-opening the tearsheet in a browser
 ```
 
@@ -19,9 +19,21 @@ uv run python3 -m sbt --config config.toml --strategy overnight_drift
 # Incremental by default: re-running with the same --output extends the file
 # from its newest timestamp and renames it so the encoded date range matches
 # the actual contents (--no-resume refetches; --page-limit overrides rows/call)
-uv run python3 -m sbt.data --exchange hyperliquid --symbol XYZ-SP500/USDC:USDC --interval 1h --start 2026-03-18 --type ohlcv
-uv run python3 -m sbt.data --exchange hyperliquid --symbol XYZ-SP500/USDC:USDC --start 2026-03-18 --type funding
+sbt data --exchange hyperliquid --symbol XYZ-SP500/USDC:USDC --interval 1h --start 2026-03-18 --type ohlcv
+sbt data --exchange hyperliquid --symbol XYZ-SP500/USDC:USDC --start 2026-03-18 --type funding
 ```
+
+### Optimization
+```bash
+sbt optimize --config config.toml --strategy overnight_drift --trials 50
+```
+
+### Web Dashboard
+```bash
+sbt web --port 8080
+```
+
+All commands also work via `python -m sbt <command>` (backward-compatible shim).
 
 - `--strategy` defaults to `bitcoin_intraday_momentum` if omitted.
 - `--type funding` ignores `--interval` (no interval param).
@@ -62,7 +74,7 @@ Adding a strategy-level plugin:
 
 1. Create `sbt/strategies/ohlc/<name>.py` (bar-driven) or `sbt/strategies/l2/<name>.py` (order-book-driven). Bar-driven: `<Name>Config(SBTBarStrategyConfig, kw_only=True, frozen=True)`; L2: `<Name>Config(SBTStrategyConfig, kw_only=True, frozen=True)` — the tiers already carry the shared fields (`instrument_id`, `bar_type` [bar tier only], `capital`, `leverage`, `backtest_start_date`, `active_from`, `risk_percent`, `subscribe_funding`), so declare only signal parameters and their defaults. Strategy class: `<Name>(SBTStrategy)` for bar mode, `<Name>(L2EventStrategy)` for L2. Set `plugins` defaults in the config (e.g. `plugins: tuple[str, ...] = ("vol_scaling",)`), instantiate `self.plugins = PluginHost.from_config(config)`, forward `self.plugins.on_bar(self, bar)` from `on_trading_bar`, and size via `open_position(side, price)` (stop-distance: `risk_quantity`). Note: `kw_only=True` is required on every config subclass — msgspec does not inherit it, and overriding an inherited field without it breaks struct construction.
 2. Register in `sbt/utils.py` `_STRATEGY_REGISTRY` with the module path under the strategy's folder.
-3. Run: `uv run python3 -m sbt --strategy <name>`.
+3. Run: `sbt backtest --strategy <name>`.
 
 Strategy parameters are **not** configured via `config.toml` — the `[strategy.*]` sections were removed; the strategy file is the single source of truth. Per-run overrides only happen through the optimizer (`--param`).
 
@@ -70,7 +82,15 @@ Strategy parameters are **not** configured via `config.toml` — the `[strategy.
 
 ```
 sbt/
-├── __main__.py             CLI entry point (thin, delegates to core.runner)
+├── __main__.py             CLI shim (delegates to sbt.cli.main)
+├── cli/                    CLI package (argparse + dispatch)
+│   ├── __init__.py
+│   ├── args.py             Shared argument groups
+│   ├── main.py             Parser assembly + top-level dispatch
+│   ├── backtest.py         `sbt backtest` subcommand
+│   ├── data.py             `sbt data` subcommand
+│   ├── web.py              `sbt web` subcommand
+│   └── optimize.py         `sbt optimize` subcommand
 ├── data.py                 Data downloader (ccxt → feather)
 ├── report.py               HTML tearsheet + TradingView chart
 ├── stats.py                Custom portfolio statistics

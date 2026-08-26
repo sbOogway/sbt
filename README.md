@@ -4,6 +4,25 @@ Modular crypto perpetual futures backtesting framework built on [Nautilus Trader
 
 ---
 
+## Installation
+
+Requires Python >=3.14.
+
+```bash
+# Clone the repo
+git clone https://github.com/sbOogway/sbt.git && cd sbt
+
+# Install with uv (recommended)
+uv sync
+
+# Or install with pip
+pip install .
+```
+
+After install, the `sbt` command is available globally. You can also run commands via `python -m sbt <command>`.
+
+---
+
 ## TL;DR Quickstart
 
 ```bash
@@ -15,40 +34,40 @@ pre-commit install --hook-type post-checkout
 git config core.mainRepo "$(pwd)"
 
 # 3. Download historical market data
-uv run python3 -m sbt.data --exchange binance --symbol BTC/USDT --interval 5m --start 2024-01-01 --type ohlcv
+sbt data --exchange binance --symbol BTC/USDT --interval 5m --start 2024-01-01 --type ohlcv
 
 # 4. Run a direct single backtest
-uv run python3 -m sbt --config config.toml --strategy overnight_drift
+sbt backtest --config config.toml --strategy overnight_drift
 ```
 
 ---
 
 ## Examples & Usage
 
-### 1. Download Data (`sbt.data`)
+### 1. Download Data (`sbt data`)
 
 Fetch OHLCV candles or funding rate history saved directly to Apache Feather format (`data/`):
 
 ```bash
 # OHLCV candlestick data
-uv run python3 -m sbt.data --exchange binance --symbol BTC/USDT --interval 5m --start 2024-01-01 --type ohlcv
+sbt data --exchange binance --symbol BTC/USDT --interval 5m --start 2024-01-01 --type ohlcv
 
 # Funding rate history (interval not required)
-uv run python3 -m sbt.data --exchange binance --symbol BTC/USDT --start 2024-01-01 --type funding
+sbt data --exchange binance --symbol BTC/USDT --start 2024-01-01 --type funding
 ```
 
 ---
 
-### 2. Standalone Backtest (`sbt`)
+### 2. Standalone Backtest (`sbt backtest`)
 
 Execute a single strategy directly and open the interactive HTML tearsheet:
 
 ```bash
 # Run strategy from config.toml
-uv run python3 -m sbt --config config.toml --strategy overnight_drift
+sbt backtest --config config.toml --strategy overnight_drift
 
 # Override parameters on the fly
-uv run python3 -m sbt --strategy orb --leverage 2.0 --start 2023-01-01
+sbt backtest --strategy orb --leverage 2.0 --start 2023-01-01
 ```
 
 Available strategies: `overnight_drift`, `bitcoin_intraday_momentum`, `glucksmann`, `orb`.
@@ -60,8 +79,7 @@ Available strategies: `overnight_drift`, `bitcoin_intraday_momentum`, `glucksman
 Find the optimal strategy parameters by simultaneously maximizing **Sharpe Ratio**, **Total Trades**, and **Net PnL** (producing an interactive 3D Pareto frontier):
 
 ```bash
-# The optimizer module lives in sbt/optimize/; no CLI entry point exists yet.
-# Call run_optuna_study() from Python, or wire up a new CLI command.
+sbt optimize --config config.toml --strategy overnight_drift --trials 50
 ```
 
 Parameter syntax:
