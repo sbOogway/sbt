@@ -19,6 +19,15 @@ def add_backtest_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--exchange", help="Override exchange from config")
     parser.add_argument("--symbol", help="Override trading pair from config")
+    parser.add_argument(
+        "--symbols",
+        action="append",
+        metavar="SYMBOL[,SYMBOL...]",
+        help=(
+            "Multi-instrument symbols (comma-separated or repeatable); "
+            "enables portfolio mode when more than one is given"
+        ),
+    )
     parser.add_argument("--interval", help="Override candle interval from config")
     parser.add_argument("--leverage", help="Override leverage from config")
     parser.add_argument("--start", help="Override backtest start date from config")

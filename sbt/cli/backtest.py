@@ -25,6 +25,7 @@ def run(args: argparse.Namespace) -> None:
     cli_overrides = {
         "exchange": args.exchange,
         "symbol": args.symbol,
+        "symbols": _flatten_symbols(args.symbols),
         "interval": args.interval,
         "leverage": args.leverage,
         "start": args.start,
@@ -64,7 +65,13 @@ def run(args: argparse.Namespace) -> None:
         print("  (Positive = strategy paid, Negative = strategy received)")
 
     strat_label = cfg.strategy_name.replace("_", " ").title()
-    base_title = f"{strat_label} — {cfg.exchange} {cfg.symbol} {cfg.interval}"
+    if len(cfg.all_symbols) > 1:
+        base_title = (
+            f"{strat_label} — {cfg.exchange} {cfg.interval} "
+            f"[{len(cfg.all_symbols)}-symbol portfolio]"
+        )
+    else:
+        base_title = f"{strat_label} — {cfg.exchange} {cfg.symbol} {cfg.interval}"
 
     if runner.window_engines:
         from ..plugins.train_val_split import _WINDOW_LABELS
@@ -75,9 +82,6 @@ def run(args: argparse.Namespace) -> None:
                 engine,
                 runner.venue,
                 title=f"{base_title} [{label}]",
-                pair=cfg.symbol,
-                exchange=cfg.exchange,
-                interval=cfg.interval,
                 open_browser=cfg.open_report,
             )
     else:
@@ -85,9 +89,6 @@ def run(args: argparse.Namespace) -> None:
             runner.engine,
             runner.venue,
             title=base_title,
-            pair=cfg.symbol,
-            exchange=cfg.exchange,
-            interval=cfg.interval,
             open_browser=cfg.open_report,
         )
 
@@ -100,6 +101,19 @@ def run(args: argparse.Namespace) -> None:
         latest.symlink_to(target)
     except OSError:
         pass
+
+
+def _flatten_symbols(values) -> list[str] | None:
+    """Flatten appended ``--symbols`` specs into a single list of symbols."""
+    if not values:
+        return None
+    out = []
+    for spec in values:
+        for part in spec.split(","):
+            part = part.strip()
+            if part:
+                out.append(part)
+    return out
 
 
 def _parse_scalar(raw: str):

@@ -23,6 +23,11 @@ class RunConfig:
 
     exchange: str
     symbol: str
+    # Multi-instrument (portfolio) mode. When non-empty and len > 1 the run
+    # executes one engine across all symbols on a shared margin account;
+    # the strategy must be a portfolio strategy. Empty => single-instrument
+    # mode keyed on ``symbol``.
+    symbols: list[str] = field(default_factory=list)
     interval: str = "5m"
     strategy_name: str = "bitcoin_intraday_momentum"
     strategy_params: dict = field(default_factory=dict)
@@ -47,6 +52,11 @@ class RunConfig:
     warmup_bars: int | None = None
     # Open the generated tearsheet in a browser after the run.
     open_report: bool = True
+
+    @property
+    def all_symbols(self) -> list[str]:
+        """The effective tradeable list: ``symbols`` when non-empty else [symbol]."""
+        return self.symbols or [self.symbol]
 
     def with_overrides(self, params: dict) -> "RunConfig":
         """Return a copy with strategy_params updated from *params*."""
@@ -130,6 +140,15 @@ class RunConfig:
         )
         parser.add_argument("--exchange", help="Override exchange from config")
         parser.add_argument("--symbol", help="Override trading pair from config")
+        parser.add_argument(
+            "--symbols",
+            action="append",
+            metavar="SYMBOL[,SYMBOL...]",
+            help=(
+                "Multi-instrument symbols (comma-separated or repeatable); "
+                "enables portfolio mode when more than one is given"
+            ),
+        )
         parser.add_argument("--interval", help="Override candle interval from config")
         parser.add_argument("--leverage", help="Override leverage from config")
         parser.add_argument("--start", help="Override backtest start date from config")
@@ -185,6 +204,7 @@ class RunConfig:
         cli_overrides = {
             "exchange": args.exchange,
             "symbol": args.symbol,
+            "symbols": _flatten_symbols(args.symbols),
             "interval": args.interval,
             "leverage": args.leverage,
             "start": args.start,
@@ -213,6 +233,19 @@ class RunConfig:
                 overrides[name.strip()] = _parse_scalar(raw)
             cfg = cfg.with_overrides(overrides)
         return cfg
+
+
+def _flatten_symbols(values) -> list[str] | None:
+    """Flatten appended ``--symbols`` specs into a single list of symbols."""
+    if not values:
+        return None
+    out = []
+    for spec in values:
+        for part in spec.split(","):
+            part = part.strip()
+            if part:
+                out.append(part)
+    return out
 
 
 def _parse_scalar(raw: str):
