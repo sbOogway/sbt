@@ -59,6 +59,276 @@ _STRATEGY_REGISTRY = {
         "RsiTrend",
         "RsiTrendConfig",
     ),
+    "zscore_mean_reversion": (
+        "strategies.ohlc.zscore_mean_reversion",
+        "ZscoreMeanReversion",
+        "ZscoreMeanReversionConfig",
+    ),
+    "bollinger_mean_reversion": (
+        "strategies.ohlc.bollinger_mean_reversion",
+        "BollingerMeanReversion",
+        "BollingerMeanReversionConfig",
+    ),
+    "donchian_breakout": (
+        "strategies.ohlc.donchian_breakout",
+        "DonchianBreakout",
+        "DonchianBreakoutConfig",
+    ),
+    "triple_ema_crossover": (
+        "strategies.ohlc.triple_ema_crossover",
+        "TripleEmaCrossover",
+        "TripleEmaCrossoverConfig",
+    ),
+    "momentum_breakout": (
+        "strategies.ohlc.momentum_breakout",
+        "MomentumBreakout",
+        "MomentumBreakoutConfig",
+    ),
+    "volatility_regime": (
+        "strategies.ohlc.volatility_regime",
+        "VolatilityRegime",
+        "VolatilityRegimeConfig",
+    ),
+    "hurst_exponent": (
+        "strategies.ohlc.hurst_exponent",
+        "HurstExponent",
+        "HurstExponentConfig",
+    ),
+    "kalman_trend": (
+        "strategies.ohlc.kalman_trend",
+        "KalmanTrend",
+        "KalmanTrendConfig",
+    ),
+    "garch_vol_forecast": (
+        "strategies.ohlc.garch_vol_forecast",
+        "GarchVolForecast",
+        "GarchVolForecastConfig",
+    ),
+    "chande_momentum": (
+        "strategies.ohlc.chande_momentum",
+        "ChandeMomentum",
+        "ChandeMomentumConfig",
+    ),
+    "stochastic_rsi": (
+        "strategies.ohlc.stochastic_rsi",
+        "StochasticRsi",
+        "StochasticRsiConfig",
+    ),
+    "williams_r": (
+        "strategies.ohlc.williams_r",
+        "WilliamsR",
+        "WilliamsRConfig",
+    ),
+    "cci": (
+        "strategies.ohlc.cci",
+        "Cci",
+        "CciConfig",
+    ),
+    "keltner_channel": (
+        "strategies.ohlc.keltner_channel",
+        "KeltnerChannel",
+        "KeltnerChannelConfig",
+    ),
+    "supertrend": (
+        "strategies.ohlc.supertrend",
+        "Supertrend",
+        "SupertrendConfig",
+    ),
+    "adx_trend": (
+        "strategies.ohlc.adx_trend",
+        "AdxTrend",
+        "AdxTrendConfig",
+    ),
+    "range_breakout": (
+        "strategies.ohlc.range_breakout",
+        "RangeBreakout",
+        "RangeBreakoutConfig",
+    ),
+    "donchian_adx": (
+        "strategies.ohlc.donchian_adx",
+        "DonchianAdx",
+        "DonchianAdxConfig",
+    ),
+    "aroon": (
+        "strategies.ohlc.aroon",
+        "Aroon",
+        "AroonConfig",
+    ),
+    "vortex_indicator": (
+        "strategies.ohlc.vortex_indicator",
+        "VortexIndicator",
+        "VortexIndicatorConfig",
+    ),
+    "elder_ray": (
+        "strategies.ohlc.elder_ray",
+        "ElderRay",
+        "ElderRayConfig",
+    ),
+    "chaikin_money_flow": (
+        "strategies.ohlc.chaikin_money_flow",
+        "ChaikinMoneyFlow",
+        "ChaikinMoneyFlowConfig",
+    ),
+    "money_flow_index": (
+        "strategies.ohlc.money_flow_index",
+        "MoneyFlowIndex",
+        "MoneyFlowIndexConfig",
+    ),
+    "trix": (
+        "strategies.ohlc.trix",
+        "TRIX",
+        "TRIXConfig",
+    ),
+    "force_index": (
+        "strategies.ohlc.force_index",
+        "ForceIndex",
+        "ForceIndexConfig",
+    ),
+    "ultimate_oscillator": (
+        "strategies.ohlc.ultimate_oscillator",
+        "UltimateOscillator",
+        "UltimateOscillatorConfig",
+    ),
+    "coppock_curve": (
+        "strategies.ohlc.coppock_curve",
+        "CoppockCurve",
+        "CoppockCurveConfig",
+    ),
+    "mass_index": (
+        "strategies.ohlc.mass_index",
+        "MassIndex",
+        "MassIndexConfig",
+    ),
+    "ease_of_movement": (
+        "strategies.ohlc.ease_of_movement",
+        "EaseOfMovement",
+        "EaseOfMovementConfig",
+    ),
+    "chaikin_oscillator": (
+        "strategies.ohlc.chaikin_oscillator",
+        "ChaikinOscillator",
+        "ChaikinOscillatorConfig",
+    ),
+    "negative_volume_index": (
+        "strategies.ohlc.negative_volume_index",
+        "NegativeVolumeIndex",
+        "NegativeVolumeIndexConfig",
+    ),
+    "price_channel": (
+        "strategies.ohlc.price_channel",
+        "PriceChannel",
+        "PriceChannelConfig",
+    ),
+    "true_range_breakout": (
+        "strategies.ohlc.true_range_breakout",
+        "TrueRangeBreakout",
+        "TrueRangeBreakoutConfig",
+    ),
+    "momentum_reversal": (
+        "strategies.ohlc.momentum_reversal",
+        "MomentumReversal",
+        "MomentumReversalConfig",
+    ),
+    "month_end_momentum": (
+        "strategies.ohlc.month_end_momentum",
+        "MonthEndMomentum",
+        "MonthEndMomentumConfig",
+    ),
+    "volatility_breakout": (
+        "strategies.ohlc.volatility_breakout",
+        "VolatilityBreakout",
+        "VolatilityBreakoutConfig",
+    ),
+    "adaptive_ma": (
+        "strategies.ohlc.adaptive_ma",
+        "AdaptiveMa",
+        "AdaptiveMaConfig",
+    ),
+    "triple_ma": (
+        "strategies.ohlc.triple_ma",
+        "TripleMa",
+        "TripleMaConfig",
+    ),
+    "inside_bar_breakout": (
+        "strategies.ohlc.inside_bar_breakout",
+        "InsideBarBreakout",
+        "InsideBarBreakoutConfig",
+    ),
+    "range_expansion": (
+        "strategies.ohlc.range_expansion",
+        "RangeExpansion",
+        "RangeExpansionConfig",
+    ),
+    "trend_strength": (
+        "strategies.ohlc.trend_strength",
+        "TrendStrength",
+        "TrendStrengthConfig",
+    ),
+    "momentum_crash": (
+        "strategies.ohlc.momentum_crash",
+        "MomentumCrash",
+        "MomentumCrashConfig",
+    ),
+    "xsectional_momentum": (
+        "strategies.ohlc.xsectional.xsectional_momentum",
+        "XSectionalMomentum",
+        "XSectionalMomentumConfig",
+    ),
+    "trend_filter": (
+        "strategies.ohlc.trend_filter",
+        "TrendFilter",
+        "TrendFilterConfig",
+    ),
+    "dual_thrust": (
+        "strategies.ohlc.dual_thrust",
+        "DualThrust",
+        "DualThrustConfig",
+    ),
+    "kama_cross": (
+        "strategies.ohlc.kama_cross",
+        "KamaCross",
+        "KamaCrossConfig",
+    ),
+    "relative_vigor": (
+        "strategies.ohlc.relative_vigor",
+        "RelativeVigor",
+        "RelativeVigorConfig",
+    ),
+    "zigzag_momentum": (
+        "strategies.ohlc.zigzag_momentum",
+        "ZigzagMomentum",
+        "ZigzagMomentumConfig",
+    ),
+    "envelope": (
+        "strategies.ohlc.envelope",
+        "Envelope",
+        "EnvelopeConfig",
+    ),
+    "psar": (
+        "strategies.ohlc.psar",
+        "PSAR",
+        "PSARConfig",
+    ),
+    "smi": (
+        "strategies.ohlc.smi",
+        "SMI",
+        "SmiConfig",
+    ),
+    "hilo": (
+        "strategies.ohlc.hilo",
+        "Hilo",
+        "HiloConfig",
+    ),
+    "mean_deviation": (
+        "strategies.ohlc.mean_deviation",
+        "MeanDeviation",
+        "MeanDeviationConfig",
+    ),
+    "t3": (
+        "strategies.ohlc.t3",
+        "T3",
+        "T3Config",
+    ),
     # L2 order book strategies (sbt/strategies/l2/)
     "l2_order_imbalance": (
         "strategies.l2.order_imbalance",
@@ -94,6 +364,11 @@ _STRATEGY_REGISTRY = {
         "strategies.l2.microprice",
         "L2Microprice",
         "L2MicropriceConfig",
+    ),
+    "l2_vpin_toxicity": (
+        "strategies.l2.vpin_toxicity",
+        "L2VpinToxicity",
+        "L2VpinToxicityConfig",
     ),
 }
 
