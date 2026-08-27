@@ -1,4 +1,4 @@
-# SBT Architecture Reference
+# sbt Architecture Reference
 
 Single-file reference for coding agents. Read this instead of scanning `sbt/`.
 `AGENTS.md` covers commands and recipes ("how do I run X"); this document

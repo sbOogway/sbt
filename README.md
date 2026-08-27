@@ -1,4 +1,4 @@
-# SBT — Strategy Backtesting Tool
+# sbt — sbOogway's backtest tool
 
 Modular crypto perpetual futures backtesting framework built on [Nautilus Trader](https://nautilustrader.io) + [CCXT](https://ccxt.readthedocs.io/). Supports Optuna multi-objective optimization and interactive tearsheet reporting.
 

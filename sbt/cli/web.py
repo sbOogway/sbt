@@ -21,5 +21,5 @@ def run(args: argparse.Namespace) -> None:
     from ..web.app import create_app
 
     app = create_app(db_path=args.db, reports_dir=args.reports)
-    print(f"Starting SBT Results dashboard at http://{args.host}:{args.port}")
+    print(f"Starting sbt results dashboard at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

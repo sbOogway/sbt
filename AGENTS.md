@@ -1,4 +1,4 @@
-# SBT — Strategy Backtesting Tool
+# sbt — sbOogway's backtest tool
 
 > **Agents:** before modifying code, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —
 > module map, execution pipeline, plugin contracts,

@@ -1,7 +1,11 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "btc-im"
+name = "sbt"
 version = "0.1.0"
-description = "Add your description here"
+description = "sbOogway's backtest tool"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

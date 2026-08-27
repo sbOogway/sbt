@@ -1,4 +1,4 @@
-"""Top-level CLI entry point for SBT.
+"""Top-level CLI entry point for sbt.
 
 Usage::
 
@@ -16,7 +16,7 @@ import argparse
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sbt",
-        description="SBT — Strategy Backtesting Tool",
+        description="sbt — sbOogway's backtest tool",
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 

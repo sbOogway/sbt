@@ -7,7 +7,7 @@ import uvicorn
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SBT Results Web Dashboard")
+    parser = argparse.ArgumentParser(description="sbt results web dashboard")
     parser.add_argument(
         "--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)"
     )
@@ -27,7 +27,7 @@ def main() -> None:
     from sbt.web.app import create_app
 
     app = create_app(db_path=args.db, reports_dir=args.reports)
-    print(f"Starting SBT Results dashboard at http://{args.host}:{args.port}")
+    print(f"Starting sbt results dashboard at http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 

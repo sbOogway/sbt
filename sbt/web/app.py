@@ -175,7 +175,7 @@ def create_app(
 
     ResultStore(db_path).close()
 
-    app = FastAPI(title="SBT Results")
+    app = FastAPI(title="sbt Results")
     templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
     _db_path = str(db_path)
     _reports_dir = Path(reports_dir)
