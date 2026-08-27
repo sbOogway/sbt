@@ -1,9 +1,10 @@
-"""SBT plugin registry."""
+"""sbt plugin registry."""
 
 from .base import (
     PluginHost,
     RunnerPlugin,
     SBTBarStrategyConfig,
+    SBTPortfolioStrategyConfig,
     SBTStrategyConfig,
     SizingPlugin,
     StrategyPlugin,
@@ -50,6 +51,7 @@ __all__ = [
     "PluginHost",
     "RunnerPlugin",
     "SBTBarStrategyConfig",
+    "SBTPortfolioStrategyConfig",
     "SBTStrategyConfig",
     "SizingPlugin",
     "StrategyPlugin",

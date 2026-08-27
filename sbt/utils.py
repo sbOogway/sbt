@@ -115,6 +115,18 @@ def get_strategy_class(name: str) -> tuple[type, type]:
     )
 
 
+def make_instrument_id(venue_name: str, symbol_str: str) -> InstrumentId:
+    """Build the conventioned instrument id for a *symbol_str* on a venue.
+
+    ``BTC/USDT:USDT`` (or ``BTCUSDT:USDT``) -> ``BTCUSDT:USDT-PERP`` on the
+    given venue. Single source of truth for the id rule, shared by
+    ``make_perpetual`` and the portfolio strategy base so their leg ids
+    always match the runner's instruments.
+    """
+    raw = symbol_str.replace("/", "")
+    return InstrumentId(symbol=Symbol(f"{raw}-PERP"), venue=Venue(venue_name))
+
+
 def make_perpetual(
     venue_name: str,
     symbol_str: str,
@@ -124,8 +136,8 @@ def make_perpetual(
     quote_currency=USDT,
     settlement_currency=USDT,
 ) -> CryptoPerpetual:
+    inst_id = make_instrument_id(venue_name, symbol_str)
     raw = symbol_str.replace("/", "")
-    inst_id = InstrumentId(symbol=Symbol(f"{raw}-PERP"), venue=Venue(venue_name))
     return CryptoPerpetual(
         instrument_id=inst_id,
         raw_symbol=Symbol(raw),

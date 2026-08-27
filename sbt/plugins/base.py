@@ -1,4 +1,4 @@
-"""Plugin infrastructure for SBT strategies and runners.
+"""Plugin infrastructure for sbt strategies and runners.
 
 Strategy-level plugins receive forwarded lifecycle events from their host
 strategy and may influence sizing. Runner-level plugins expand one job into
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 
 class SBTStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
-    """Base config for all SBT strategies.
+    """Base config for all sbt strategies.
 
     Carries the runner-injected fields — ``instrument_id``, ``capital``,
     ``leverage``, ``backtest_start_date``, ``active_from`` — so concrete
@@ -65,6 +65,21 @@ class SBTBarStrategyConfig(SBTStrategyConfig, kw_only=True, frozen=True):
     """
 
     bar_type: BarType
+
+
+class SBTPortfolioStrategyConfig(SBTStrategyConfig, kw_only=True, frozen=True):
+    """Config tier for multi-instrument (portfolio) bar strategies.
+
+    Adds the ``symbols`` basket and the shared ``interval``. The runner
+    injects ``instrument_id`` (the primary / first symbol's instrument) and
+    builds one perpetual + bar stream per symbol on a shared margin account;
+    the strategy derives each leg's instrument id and bar type from
+    ``symbols`` + ``interval``. No single ``bar_type`` — each leg subscribes
+    its own. ``symbols`` order is significant: index 0 is the primary leg.
+    """
+
+    symbols: tuple[str, ...] = ()
+    interval: str = "1d"
 
 
 class StrategyPlugin(ABC):

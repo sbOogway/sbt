@@ -31,7 +31,12 @@ from ..stats import (
     RunConfigStatistic,
     system_quality_number,
 )
-from ..utils import get_strategy_class, make_perpetual, parse_interval
+from ..utils import (
+    get_strategy_class,
+    make_instrument_id,
+    make_perpetual,
+    parse_interval,
+)
 from ..plugins import RunnerPlugin, Window, get_runner_plugin_class
 from .config import RunConfig
 from .feather import find_feather, to_utc_ts
@@ -166,19 +171,27 @@ def _select_bars_columns(df: pd.DataFrame) -> tuple[pd.DataFrame | None, str | N
 
 
 def _discover_bars(
-    cfg: RunConfig, start_ts: pd.Timestamp, end_ts: pd.Timestamp | None
+    cfg: RunConfig,
+    start_ts: pd.Timestamp,
+    end_ts: pd.Timestamp | None,
+    symbol: str | None = None,
 ) -> tuple[pd.DataFrame | None, str | None]:
-    """Resolve, load, column-select and date-filter the feather OHLCV frame."""
+    """Resolve, load, column-select and date-filter the feather OHLCV frame.
+
+    ``symbol`` defaults to ``cfg.symbol``; the portfolio path passes each
+    basket symbol to discover that instrument's own frame.
+    """
+    symbol = symbol or cfg.symbol
     feather_path = cfg.feather_path or find_feather(
         cfg.exchange,
-        cfg.symbol,
+        symbol,
         cfg.interval,
         search_dirs=[cfg.data_dir, "."],
         start=cfg.start,
         end=cfg.end,
     )
     if not feather_path:
-        return None, f"No feather data found for {cfg.symbol} ({cfg.interval})"
+        return None, f"No feather data found for {symbol} ({cfg.interval})"
 
     print(f"Loading data from {feather_path}...")
     try:
@@ -421,7 +434,7 @@ class BacktestRunner:
     def run(
         self,
         job_id: str = "standalone",
-        bars: pd.DataFrame | None = None,
+        bars: pd.DataFrame | dict[str, pd.DataFrame] | None = None,
         funding: pd.DataFrame | None = None,
     ) -> BacktestResult:
         """Execute the backtest and return a structured result.
@@ -432,7 +445,10 @@ class BacktestRunner:
         * ``bars=None`` (default) resolves OHLCV data via the feather
           naming convention, exactly as before.
         * An explicit ``bars`` frame is used **as-is** — the caller owns
-          content, slicing and warm-up; no file is read.
+          content, slicing and warm-up; no file is read. In portfolio mode
+          (``config.symbols`` > 1), ``bars`` is a ``dict[symbol, frame]``
+          mapping each basket symbol onto its own frame; a single frame is
+          not meaningful there.
         * An explicit ``funding`` frame is sliced to each window's bounds
           and injected into the engine. Explicit bars without a funding
           frame run without funding instead of searching the disk.
@@ -521,18 +537,24 @@ class BacktestRunner:
         job_id: str,
         start: str | pd.Timestamp,
         end: str | pd.Timestamp | None,
-        bars: pd.DataFrame | None = None,
+        bars: pd.DataFrame | dict[str, pd.DataFrame] | None = None,
         funding: pd.DataFrame | None = None,
     ) -> BacktestResult:
         """Execute one backtest over the [start, end] window.
 
-        ``bars`` carries an OHLCV frame; when supplied it is trusted
+        ``bars`` carries an OHLCV frame (or, in portfolio mode, a
+        ``dict[symbol, frame]``); when supplied it is trusted
         as-is (runner-plugin windows arrive pre-sliced with any warm-up
         bars ahead of *start*, trading gated via strategy ``active_from``).
-        When ``None``, the feather convention resolves the frame.
+        When ``None``, the feather convention resolves the frame(s).
         """
         t0 = time.monotonic()
         cfg = self.config
+
+        # Multi-instrument (portfolio) mode runs on its own dedicated path:
+        # one engine, N instruments + N bar streams, shared margin account.
+        if cfg.data_type != "l2" and len(cfg.all_symbols) > 1:
+            return self._run_portfolio_window(job_id, start, end, bars, funding, t0)
 
         # --------------------------------------------------------------
         # Layer 2 Execution Mode
@@ -720,3 +742,155 @@ class BacktestRunner:
         engine.run()
 
         return _collect_result(engine, strategy, job_id, t0)
+
+    # ------------------------------------------------------------------
+    # Portfolio (multi-instrument) execution
+    # ------------------------------------------------------------------
+
+    def _run_portfolio_window(
+        self,
+        job_id: str,
+        start: str | pd.Timestamp,
+        end: str | pd.Timestamp | None,
+        bars: pd.DataFrame | dict[str, pd.DataFrame] | None = None,
+        funding: pd.DataFrame | None = None,
+        t0: float | None = None,
+    ) -> BacktestResult:
+        """Execute one portfolio backtest over the [start, end] window.
+
+        One engine, one venue, one shared margin account, N instruments +
+        N bar streams + N bar_types. ``bars`` may be a ``dict[symbol,
+        frame]`` (explicit seam) or ``None`` (feather discovery per
+        symbol). When ``None``, finds each basket symbol's own feather.
+        """
+        if t0 is None:
+            t0 = time.monotonic()
+        cfg = self.config
+        symbols = cfg.all_symbols
+        window_start = to_utc_ts(start)
+        window_end = to_utc_ts(end) if end is not None else None
+
+        # Resolve per-symbol OHLCV frames.
+        frames: dict[str, pd.DataFrame] = {}
+        if isinstance(bars, dict):
+            frames = dict(bars)
+        else:
+            frames = {}
+            for sym in symbols:
+                df, err = _discover_bars(
+                    cfg, window_start, window_end, symbol=sym
+                )
+                if err:
+                    return _fail(job_id, err)
+                frames[sym] = df
+
+        missing = [s for s in symbols if s not in frames]
+        if missing:
+            return _fail(
+                job_id,
+                f"Missing bars for portfolio symbols {missing}.",
+            )
+        for sym in symbols:
+            if frames[sym] is None or len(frames[sym]) < 2:
+                return _fail(
+                    job_id,
+                    f"Not enough bars for {sym} in [{window_start}, {end}].",
+                )
+
+        # Shared venue / account / engine across every instrument.
+        settle_currency = _resolve_currency(cfg.settle_currency)
+        interval_nt = parse_interval(cfg.interval)
+        venue = Venue(cfg.exchange)
+        self.venue = venue
+
+        engine = BacktestEngine(config=BacktestEngineConfig())
+        self.engine = engine
+
+        _add_venue(
+            engine,
+            venue,
+            settle_currency=settle_currency,
+            capital=cfg.capital,
+            leverage=cfg.leverage,
+        )
+
+        instruments = {}
+        bar_types = {}
+        for sym in symbols:
+            frame = frames[sym]
+            sym_ref = float(frame["close"].iloc[0])
+            sym_slip = cfg.slippage_ticks * cfg.tick_size / sym_ref * 10000
+            sym_fee = cfg.taker_fee + Decimal(str(sym_slip)) / Decimal(10000)
+
+            base_code = sym.split("/")[0]
+            instrument = make_perpetual(
+                cfg.exchange,
+                sym,
+                cfg.maker_fee,
+                sym_fee,
+                base_currency=_resolve_currency(base_code),
+                settlement_currency=settle_currency,
+                quote_currency=settle_currency,
+            )
+            engine.add_instrument(instrument)
+            instruments[sym] = instrument
+            bar_types[sym] = BarType.from_str(
+                f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL"
+            )
+
+        # Strategy config: the portfolio tier carries `symbols` + `interval`.
+        StrategyClass, ConfigClass = get_strategy_class(cfg.strategy_name)
+        primary_iid = instruments[symbols[0]].id
+        strategy_kwargs = _base_strategy_kwargs(
+            cfg, primary_iid, window_start
+        )
+        # Portfolio tier: no single bar_type — each leg subscribes its own.
+        strategy_kwargs["symbols"] = tuple(symbols)
+        strategy_kwargs["interval"] = cfg.interval
+        try:
+            strategy_config = _build_strategy_config(ConfigClass, **strategy_kwargs)
+        except (TypeError, ValueError) as e:
+            return _fail(job_id, str(e))
+
+        for sym in symbols:
+            df = frames[sym]
+            instrument = instruments[sym]
+            bar_type = bar_types[sym]
+            print(
+                f"Loaded {len(df)} {cfg.interval} bars for {sym} "
+                f"(ref_price={float(df['close'].iloc[0])})."
+            )
+            engine.add_data(load_bars(df, bar_type, instrument))
+
+            if funding is not None:
+                funding_df = _slice_frame(funding, window_start, window_end)
+            elif bars is None:
+                funding_path = find_feather(
+                    cfg.exchange,
+                    sym,
+                    "funding",
+                    search_dirs=[cfg.data_dir, "."],
+                )
+                if funding_path:
+                    print(f"Loading funding data for {sym} from {funding_path}...")
+                    funding_df = pd.read_feather(funding_path)
+                else:
+                    funding_df = None
+            else:
+                funding_df = None
+            if funding_df is not None and len(funding_df):
+                funding_updates = load_funding_rates(funding_df, instrument.id)
+                if funding_updates:
+                    engine.add_data(funding_updates)
+                    print(f"Loaded {len(funding_updates)} funding updates for {sym}.")
+
+        _register_stats(engine, cfg, instruments[symbols[0]])
+        strategy = StrategyClass(config=strategy_config)
+        self.strategy = strategy
+        engine.add_strategy(strategy)
+
+        print("Running portfolio backtest...")
+        engine.run()
+
+        result = _collect_result(engine, strategy, job_id, t0)
+        return result
