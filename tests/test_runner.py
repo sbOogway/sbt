@@ -21,7 +21,11 @@ from sbt.core.runner import (
     _slice_frame,
     load_bars,
 )
-from sbt.strategies.base import SBTStrategy
+from sbt.strategies.base import (
+    SBTStrategy,
+    SBTPortfolioStrategy,
+    SBTPortfolioStrategyConfig,
+)
 from sbt.strategies.ohlc.orb import ORBConfig
 from sbt.utils import make_perpetual
 
@@ -65,6 +69,57 @@ def test_explicit_bars_with_split(orb_config, make_bars):
     assert result.out_of_sample_sharpe_ratio is not None
     # OOS metrics are promoted to the top level.
     assert result.num_trades == result.out_of_sample_num_trades
+
+
+def test_portfolio_end_to_end(monkeypatch):
+    """Multi-symbol portfolio mode runs one engine with N legs on a shared account.
+
+    A probe portfolio strategy opens a long on each leg as its first bar
+    arrives; the assertion is that N instruments trade on a single engine
+    that shares one venue/account and yields a portfolio-level result.
+    """
+
+    class PortfolioLongAll(SBTPortfolioStrategy):
+        def __init__(self, config: SBTPortfolioStrategyConfig) -> None:
+            super().__init__(config)
+            self._entered: set[InstrumentId] = set()
+
+        def on_instrument_bar(self, instrument_id: InstrumentId, bar) -> None:
+            if instrument_id not in self._entered and self.trading_active:
+                self._entered.add(instrument_id)
+                self.open_position(OrderSide.BUY, bar.close.as_double(), instrument_id)
+
+    class PortfolioLongAllConfig(
+        SBTPortfolioStrategyConfig, kw_only=True, frozen=True
+    ):
+        pass
+
+    monkeypatch.setattr(
+        runner_mod,
+        "get_strategy_class",
+        lambda name: (PortfolioLongAll, PortfolioLongAllConfig),
+    )
+
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
+    bars = {
+        sym: make_synthetic_bars(days=10, base=100.0 + i * 10) for i, sym in enumerate(symbols)
+    }
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1h",
+        strategy_name="portfolio_probe",
+        start="2024-01-01",
+        end="2024-01-10",
+        open_report=False,
+    )
+
+    result = BacktestRunner(cfg).run(bars=bars)
+
+    assert result.status == JobStatus.DONE, result.error
+    assert result.num_trades >= 3, "expected at least one fill per leg"
+    assert isinstance(result.pnl, float)
 
 
 def test_injected_funding_reaches_engine(synthetic_bars, orb_config, monkeypatch):
