@@ -1,4 +1,4 @@
-# SBT Context
+# sbt Context
 
 Glossary for the domain language used across strategies, runner, and
 plugins. Anchors are `file.py` + symbol names. Mechanics live in
@@ -16,6 +16,14 @@ plugins. Anchors are `file.py` + symbol names. Mechanics live in
   subclasses `SBTStrategy` and its config subclasses
   **SBTBarStrategyConfig** (the tier carrying `bar_type`). Lives in
   `sbt/strategies/ohlc/`.
+- **Portfolio strategy** — bar-mode multi-instrument strategy; subclasses
+  `SBTPortfolioStrategy` and its config `SBTPortfolioStrategyConfig`
+  (carrying `symbols`, no single `bar_type`). Co-manages one **Leg** per
+  instrument on a single shared margin account, sizing legs off the
+  whole-portfolio equity. Lives in `sbt/strategies/ohlc/`.
+- **Leg** — one instrument's position within a portfolio strategy: its own
+  side, quantity, latest price, and funding accrual, keyed by
+  `instrument_id`.
 - **L2 strategy** — order-book/event driven, no bar stream; plain
   nautilus `Strategy`, config subclasses `SBTStrategyConfig` directly
   (never receives `bar_type`). Lives in `sbt/strategies/l2/`.
