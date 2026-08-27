@@ -50,11 +50,40 @@ def run(args: argparse.Namespace) -> None:
         "data_type": args.data_type,
         "l2_max_files": args.l2_max_files,
         "train_val_split": args.train_val_split,
+        "walk_forward": args.walk_forward,
+        "wf_is_months": args.wf_is_months,
+        "wf_oos_months": args.wf_oos_months,
+        "wf_step_months": args.wf_step_months,
+        "wf_trials": args.wf_trials,
     }
 
     if args.no_open:
         cli_overrides["open_report"] = False
 
+    # --- Walk-forward mode ---
+    if args.walk_forward:
+        from ..core.config import RunConfig
+        from ..optimize.walk_forward import run_walk_forward
+
+        cfg = RunConfig.from_toml(
+            args.config, args.strategy, cli_overrides=cli_overrides
+        )
+        if args.param:
+            from ..core.config import _parse_scalar
+
+            overrides = {}
+            for spec in args.param:
+                name, _, raw = spec.partition("=")
+                if not name or not raw:
+                    raise ValueError(f"Invalid --param '{spec}': expected NAME=VALUE")
+                overrides[name.strip()] = _parse_scalar(raw)
+            cfg = cfg.with_overrides(overrides)
+
+        wf_result = run_walk_forward(cfg)
+        print(f"\n{wf_result.summary_line()}")
+        return
+
+    # --- Standard Optuna optimization ---
     run_optuna_study(
         config_path=args.config,
         strategy_name=args.strategy,

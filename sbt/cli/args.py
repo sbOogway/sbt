@@ -67,6 +67,36 @@ def add_backtest_args(parser: argparse.ArgumentParser) -> None:
         metavar="NAME=VALUE",
         help="Override a strategy parameter (repeatable)",
     )
+    # Walk-forward validation
+    parser.add_argument(
+        "--walk-forward",
+        action="store_true",
+        help="Enable walk-forward validation (rolling IS/OOS with optimization)",
+    )
+    parser.add_argument(
+        "--wf-is-months",
+        type=int,
+        default=12,
+        help="Walk-forward in-sample window in months (default: 12)",
+    )
+    parser.add_argument(
+        "--wf-oos-months",
+        type=int,
+        default=3,
+        help="Walk-forward out-of-sample window in months (default: 3)",
+    )
+    parser.add_argument(
+        "--wf-step-months",
+        type=int,
+        default=3,
+        help="Walk-forward step between windows in months (default: 3)",
+    )
+    parser.add_argument(
+        "--wf-trials",
+        type=int,
+        default=30,
+        help="Optuna trials per IS window (default: 30)",
+    )
 
 
 def add_data_args(parser: argparse.ArgumentParser) -> None:

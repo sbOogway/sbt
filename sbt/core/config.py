@@ -50,6 +50,13 @@ class RunConfig:
     # Bars loaded before each window's trading start so indicators/plugins
     # warm up without polluting window metrics (orders are gated off).
     warmup_bars: int | None = None
+    # Walk-forward validation: rolling IS/OOS windows with per-window
+    # Optuna optimization. When enabled, replaces the normal run path.
+    walk_forward: bool = False
+    wf_is_months: int = 12
+    wf_oos_months: int = 3
+    wf_step_months: int = 3
+    wf_trials: int = 30
     # Open the generated tearsheet in a browser after the run.
     open_report: bool = True
 
