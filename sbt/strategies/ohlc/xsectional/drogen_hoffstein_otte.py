@@ -30,7 +30,7 @@ class MomentumWinnersConfig(SBTPortfolioStrategyConfig, kw_only=True, frozen=Tru
     continuation_days: int = 7    # weekly 7-day rebalance / holding cadence
     top_fraction: float = 0.2     # top quintile
     long_only: bool = True        # False => WML (short the bottom quintile too)
-    liquidity_min_dollar: float = 0.0   # paper: $5M avg dollar volume threshold
+    liquidity_min_dollar: float = 5_000_000.0   # paper: $5M avg dollar volume threshold
     liquidity_days: int = 30      # trailing window for the liquidity filter
 
 

@@ -542,7 +542,8 @@ def test_momentum_winners_long_only():
         exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
         strategy_name="momentum_winners",
         strategy_params={"formation_days": 30, "continuation_days": 7,
-                         "top_fraction": 0.2, "long_only": True},
+                         "top_fraction": 0.2, "long_only": True,
+                         "liquidity_min_dollar": 0.0},
         start="2024-01-01", end="2024-03-01", open_report=False,
     )
     runner = BacktestRunner(cfg)
@@ -566,7 +567,8 @@ def test_momentum_winners_wml():
         exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
         strategy_name="momentum_winners",
         strategy_params={"formation_days": 30, "continuation_days": 7,
-                         "top_fraction": 0.2, "long_only": False},
+                         "top_fraction": 0.2, "long_only": False,
+                         "liquidity_min_dollar": 0.0},
         start="2024-01-01", end="2024-03-01", open_report=False,
     )
     runner = BacktestRunner(cfg)
