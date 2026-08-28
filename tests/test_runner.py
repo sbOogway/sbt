@@ -270,6 +270,111 @@ def test_zaremba_reversal_direction(reverse, expected_long, expected_short):
     assert sides[expected_short.replace("/USDT:USDT", "")] == OrderSide.SELL
 
 
+def test_momentum_reversal_jk():
+    """Registered momentum_reversal forms a J/K winner-minus-loser book.
+
+    Distinct per-day growth gives a stable J-week formation ranking; the
+    (non-overlapping) WML should open long winners and short losers.
+    """
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    growths = [-0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    bars = {
+        sym: make_daily_trend_bars(days=60, base=100.0, growth=g)
+        for sym, g in zip(symbols, growths)
+    }
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1d",
+        strategy_name="momentum_reversal",
+        strategy_params={"formation_weeks": 2, "holding_weeks": 2},
+        start="2024-01-01",
+        end="2024-03-01",
+        open_report=False,
+    )
+
+    result = BacktestRunner(cfg).run(bars=bars)
+
+    assert result.status == JobStatus.DONE, result.error
+    assert result.num_trades >= 2, "expected at least one long and one short fill"
+    assert isinstance(result.pnl, float)
+
+
+def test_momentum_reversal_direction():
+    """The winner is long and the loser short after formation (2/2)."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    growths = [-0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    bars = {
+        sym: make_daily_trend_bars(days=60, base=100.0, growth=g)
+        for sym, g in zip(symbols, growths)
+    }
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1d",
+        strategy_name="momentum_reversal",
+        strategy_params={"formation_weeks": 2, "holding_weeks": 2, "top_bottom": 0.30},
+        start="2024-01-01",
+        end="2024-03-01",
+        open_report=False,
+    )
+
+    runner = BacktestRunner(cfg)
+    result = runner.run(bars=bars)
+
+    assert result.status == JobStatus.DONE, result.error
+    sides = {
+        iid.value.split(":")[0].replace("USDT", ""): side
+        for iid, side in runner.strategy.position_map.items()
+    }
+    assert sides["LINK"] == OrderSide.BUY   # biggest winner
+    assert sides["BTC"] == OrderSide.SELL   # biggest loser
+
+
+def test_momentum_reversal_overlap_unsupported():
+    """Overlapping 1/K tranches are rejected, not silently approximated."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+    bars = {sym: make_daily_trend_bars(days=20, base=100.0, growth=0.01) for sym in symbols}
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1d",
+        strategy_name="momentum_reversal",
+        strategy_params={"overlap": True},
+        start="2024-01-01",
+        end="2024-01-20",
+        open_report=False,
+    )
+
+    with pytest.raises(NotImplementedError, match="overlapping"):
+        BacktestRunner(cfg).run(bars=bars)
+
+
+def test_momentum_reversal_rejects_bad_fraction():
+    """An out-of-range top_bottom fails loudly during construction."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+    bars = {sym: make_daily_trend_bars(days=20, base=100.0, growth=0.01) for sym in symbols}
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1d",
+        strategy_name="momentum_reversal",
+        strategy_params={"top_bottom": 0.8},
+        start="2024-01-01",
+        end="2024-01-20",
+        open_report=False,
+    )
+
+    with pytest.raises(ValueError, match="top_bottom"):
+        BacktestRunner(cfg).run(bars=bars)
+
+
 def test_portfolio_end_to_end(monkeypatch):
     """Multi-symbol portfolio mode runs one engine with N legs on a shared account.
 

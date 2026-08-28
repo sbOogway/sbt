@@ -284,6 +284,11 @@ _STRATEGY_REGISTRY = {
         "ZarembaReversal",
         "ZarembaReversalConfig",
     ),
+    "momentum_reversal": (
+        "strategies.ohlc.xsectional.momentum_reversal",
+        "MomentumReversal",
+        "MomentumReversalConfig",
+    ),
     "trend_filter": (
         "strategies.ohlc.trend_filter",
         "TrendFilter",
