@@ -517,3 +517,17 @@ class SBTPortfolioStrategy(Strategy):
                 self.exit_market(iid)
                 if leg.price:
                     self.open_position(target, leg.price, iid)
+
+    def prune_series(
+        self, series: dict[InstrumentId, list], before_ns: int
+    ) -> None:
+        """Drop bars older than *before_ns* from every per-leg series.
+
+        Strategies append a bar to *series[iid]* on every forwarded bar
+        and never trim; over a long backtest the lists grow unbounded.
+        Call this after rebalance with the minimum lookback the strategy
+        needs so memory stays bounded.
+        """
+        for iid, pairs in series.items():
+            while pairs and pairs[0][0] <= before_ns:
+                pairs.pop(0)

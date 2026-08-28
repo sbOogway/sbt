@@ -75,6 +75,10 @@ class CointegratedArb(SBTPortfolioStrategy):
         if not self.trading_active:
             return
         self._step(day_ns)
+        self.prune_series(
+            self._series,
+            day_ns - (self.config.estimation_window + 1) * _DAY_NS,
+        )
 
     # ------------------------------------------------------------------ #
 

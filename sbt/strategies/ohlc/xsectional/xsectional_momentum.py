@@ -101,3 +101,7 @@ class XSectionalMomentum(SBTPortfolioStrategy):
             for iid in self._legs
         }
         self.apply_targets(targets)
+        self.prune_series(
+            self._series,
+            int(ts.value) - (self.config.formation_months + 1) * 30 * 86_400_000_000_000,
+        )

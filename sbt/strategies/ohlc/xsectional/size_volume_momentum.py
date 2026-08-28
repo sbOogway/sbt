@@ -188,3 +188,7 @@ class SizeVolumeMomentum(SBTPortfolioStrategy):
                     else None
                 )
         self.apply_targets(targets)
+        self.prune_series(
+            self._series,
+            int(ts.value) - (max(self.config.liquid_window_weeks, self.config.hk_weeks) + 1) * _WEEK_NS,
+        )

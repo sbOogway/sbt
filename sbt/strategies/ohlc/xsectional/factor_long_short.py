@@ -143,3 +143,7 @@ class FactorLongShort(SBTPortfolioStrategy):
             for iid in self._legs
         }
         self.apply_targets(targets)
+        self.prune_series(
+            self._series,
+            int(ts.value) - (self.config.lookback_weeks + 1) * 7 * 86_400_000_000_000,
+        )

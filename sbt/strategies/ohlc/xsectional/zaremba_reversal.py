@@ -146,3 +146,7 @@ class ZarembaReversal(SBTPortfolioStrategy):
             for iid in self._legs
         }
         self.apply_targets(targets)
+        self.prune_series(
+            self._series,
+            int(ts.value) - (self.config.liquidity_window_days + 2) * 86_400_000_000_000,
+        )

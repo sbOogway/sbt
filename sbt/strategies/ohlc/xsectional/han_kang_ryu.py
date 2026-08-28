@@ -96,6 +96,10 @@ class TSXSMomentum(SBTPortfolioStrategy):
             self._rebalance_ts(day_ns, start_ns)
         else:
             self._rebalance_cs(day_ns, start_ns)
+        self.prune_series(
+            self._series,
+            day_ns - (self.config.lookback_days + 1) * _DAY_NS,
+        )
 
     def _rebalance_ts(self, day_ns: int, start_ns: int) -> None:
         rets = [

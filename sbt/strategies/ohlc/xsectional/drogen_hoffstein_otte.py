@@ -116,3 +116,7 @@ class MomentumWinners(SBTPortfolioStrategy):
             for iid in self._legs
         }
         self.apply_targets(targets)
+        self.prune_series(
+            self._series,
+            day_ns - (max(self.config.formation_days, self.config.liquidity_days) + 1) * _DAY_NS,
+        )
