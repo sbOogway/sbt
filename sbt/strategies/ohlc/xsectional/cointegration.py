@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from statsmodels.regression.linear_model import OLS
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
 _METHODS = ("johansen", "engle_granger")
