@@ -38,6 +38,7 @@ class FactorLongShort(SBTPortfolioStrategy):
             raise ValueError(
                 f"factor must be one of {self._FACTORS}, got {config.factor!r}"
             )
+        self._volume_seen: bool = False
         # Per-leg (ts_ns, close, volume). Volume is required for the
         # "volume" factor and harmless for "momentum".
         self._series: dict[InstrumentId, list[tuple[int, float, float]]] = {
@@ -46,13 +47,16 @@ class FactorLongShort(SBTPortfolioStrategy):
         self._last_week: str | None = None
 
     def on_instrument_bar(self, instrument_id: InstrumentId, bar: Bar) -> None:
+        volume = (
+            float(bar.volume.as_double()) if hasattr(bar, "volume") else 0.0
+        )
+        if volume > 0:
+            self._volume_seen = True
         self._series[instrument_id].append(
             (
                 bar.ts_event,
                 float(bar.close.as_double()),
-                float(
-                    bar.volume.as_double() if hasattr(bar, "volume") else 0.0
-                ),
+                volume,
             )
         )
 
@@ -98,6 +102,11 @@ class FactorLongShort(SBTPortfolioStrategy):
         return close
 
     def _factor_values(self, ts: pd.Timestamp) -> dict[InstrumentId, float]:
+        if self.config.factor == "volume" and not self._volume_seen:
+            raise ValueError(
+                "factor='volume' requires bars with non-zero volume data; "
+                "none seen so far. Check the data feed."
+            )
         end_ns, start_ns = self._formation_bounds(ts)
         factor = self.config.factor
         values: dict[InstrumentId, float] = {}
