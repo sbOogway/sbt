@@ -21,7 +21,14 @@ def _as_matrix(logp: pd.DataFrame) -> np.ndarray:
 
 
 def engle_granger_weights(logp: pd.DataFrame) -> np.ndarray:
-    """Regress the primary (col 0) log-price on the rest; weights w0=1, wj=-beta."""
+    """Regress the primary (col 0) log-price on the rest; weights w0=1, wj=-beta.
+
+    Sign convention: the primary leg has weight +1, and the spread
+    ``w @ log(P)`` equals the equilibrium constant. A long-basket
+    trade goes long legs with positive weight and short legs with
+    negative weight; flip the convention if your data fits the
+    primary with the opposite sign.
+    """
     Xm = _as_matrix(logp)
     y = Xm[:, 0]
     design = np.column_stack([np.ones(len(y)), Xm[:, 1:]])
