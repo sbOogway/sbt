@@ -375,6 +375,96 @@ def test_momentum_reversal_rejects_bad_fraction():
         BacktestRunner(cfg).run(bars=bars)
 
 
+def test_size_volume_momentum_large_direction():
+    """group=large, signal=momentum: momentum on the liquid subset (long best)."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    growths = [-0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    volumes = [5000.0, 5000.0, 5000.0, 100.0, 100.0, 100.0]  # BTC/ETH/SOL liquid
+    bars = {
+        sym: make_daily_trend_bars(days=60, base=100.0, growth=g, volume=v)
+        for sym, g, v in zip(symbols, growths, volumes)
+    }
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="size_volume_momentum",
+        strategy_params={"signal": "momentum", "group": "large", "liquid_fraction": 0.5},
+        start="2024-01-01", end="2024-03-01", open_report=False,
+    )
+    runner = BacktestRunner(cfg)
+    result = runner.run(bars=bars)
+    assert result.status == JobStatus.DONE, result.error
+
+    sides = {iid.value.split(":")[0].replace("USDT", ""): side
+             for iid, side in runner.strategy.position_map.items()}
+    # Among liquid {BTC,ETH,SOL}, SOL is best (long), BTC worst (short); illiquid flat.
+    assert sides["SOL"] == OrderSide.BUY
+    assert sides["BTC"] == OrderSide.SELL
+    assert sides["DOT"] is None
+
+
+def test_size_volume_momentum_small_direction():
+    """group=small, signal=momentum: reversal on the illiquid subset (long worst)."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    growths = [-0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    volumes = [5000.0, 5000.0, 5000.0, 100.0, 100.0, 100.0]  # ADA/DOT/LINK illiquid
+    bars = {
+        sym: make_daily_trend_bars(days=60, base=100.0, growth=g, volume=v)
+        for sym, g, v in zip(symbols, growths, volumes)
+    }
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="size_volume_momentum",
+        strategy_params={"signal": "momentum", "group": "small", "liquid_fraction": 0.5},
+        start="2024-01-01", end="2024-03-01", open_report=False,
+    )
+    runner = BacktestRunner(cfg)
+    result = runner.run(bars=bars)
+    assert result.status == JobStatus.DONE, result.error
+
+    sides = {iid.value.split(":")[0].replace("USDT", ""): side
+             for iid, side in runner.strategy.position_map.items()}
+    # Among illiquid {ADA,DOT,LINK}, reversal longs worst (ADA) and shorts best (LINK).
+    assert sides["ADA"] == OrderSide.BUY
+    assert sides["LINK"] == OrderSide.SELL
+    assert sides["ETH"] is None
+
+
+def test_size_volume_momentum_high_momentum_runs():
+    """signal=high_momentum runs and produces a long+short book."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    growths = [-0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    bars = {
+        sym: make_daily_trend_bars(days=60, base=100.0, growth=g)
+        for sym, g in zip(symbols, growths)
+    }
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="size_volume_momentum",
+        strategy_params={"signal": "high_momentum", "group": "both", "hk_weeks": 2},
+        start="2024-01-01", end="2024-03-01", open_report=False,
+    )
+    result = BacktestRunner(cfg).run(bars=bars)
+    assert result.status == JobStatus.DONE, result.error
+    assert result.num_trades >= 2
+    assert isinstance(result.pnl, float)
+
+
+def test_size_volume_momentum_rejects_bad_signal():
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+    bars = {sym: make_daily_trend_bars(days=20, base=100.0, growth=0.01) for sym in symbols}
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="size_volume_momentum",
+        strategy_params={"signal": "bogus"},
+        start="2024-01-01", end="2024-01-20", open_report=False,
+    )
+    with pytest.raises(ValueError, match="signal must be one of"):
+        BacktestRunner(cfg).run(bars=bars)
+
+
 def test_portfolio_end_to_end(monkeypatch):
     """Multi-symbol portfolio mode runs one engine with N legs on a shared account.
 

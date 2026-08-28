@@ -289,6 +289,11 @@ _STRATEGY_REGISTRY = {
         "MomentumReversal",
         "MomentumReversalConfig",
     ),
+    "size_volume_momentum": (
+        "strategies.ohlc.xsectional.size_volume_momentum",
+        "SizeVolumeMomentum",
+        "SizeVolumeMomentumConfig",
+    ),
     "trend_filter": (
         "strategies.ohlc.trend_filter",
         "TrendFilter",
