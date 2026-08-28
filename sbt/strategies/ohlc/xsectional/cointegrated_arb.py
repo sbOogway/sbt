@@ -89,7 +89,7 @@ class CointegratedArb(SBTPortfolioStrategy):
                     rows.append({"t": t, "iid": iid, "lp": float(np.log(c))})
         if not rows:
             return None
-        df = pd.DataFrame(rows).pivot_table(index="t", columns="iid", values="lp")
+        df = pd.DataFrame(rows).pivot(index="t", columns="iid", values="lp")
         df = df.reindex(columns=[iid for iid in self._order if iid in df.columns])
         if len(df) < max(2, self.config.estimation_window // 4):
             return None
