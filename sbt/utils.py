@@ -304,6 +304,11 @@ _STRATEGY_REGISTRY = {
         "MomentumWinners",
         "MomentumWinnersConfig",
     ),
+    "cointegrated_arb": (
+        "strategies.ohlc.xsectional.cointegrated_arb",
+        "CointegratedArb",
+        "CointegratedArbConfig",
+    ),
     "trend_filter": (
         "strategies.ohlc.trend_filter",
         "TrendFilter",

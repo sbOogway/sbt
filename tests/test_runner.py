@@ -9,6 +9,7 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Quantity
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -602,6 +603,93 @@ def test_momentum_winners_rejects_bad_top_fraction():
         start="2024-01-01", end="2024-01-20", open_report=False,
     )
     with pytest.raises(ValueError, match="top_fraction must be"):
+        BacktestRunner(cfg).run(bars=bars)
+
+
+def make_cointegrated_bars(n=160, seed=3, base=100.0):
+    """BTC/ETH/BCH/LTC with a clean cointegrated system and a negative tail.
+
+    ETH/BCH/LTC are independent random-walk common trends; BTC = trend1 +
+    trend2 + a small persistent mean-reverting residual (so the combo
+    BTC-ETH-BCH is stationary). The residual's strongly negative final stretch
+    forces a final LONG spread book for the stat-arb test.
+    """
+    rng = np.random.default_rng(seed)
+    g1 = np.cumsum(rng.normal(0, 0.05, n))
+    g2 = np.cumsum(rng.normal(0, 0.05, n))
+    g3 = np.cumsum(rng.normal(0, 0.05, n))
+
+    resid = np.zeros(n)
+    for i in range(1, n):
+        resid[i] = 0.9 * resid[i - 1] + rng.normal(0, 0.08)
+    resid -= resid.mean()
+    resid[-15:] -= 2.0  # strongly negative final spread -> LONG book
+
+    logs = {
+        "BTC": (g1 + g2 + resid).tolist(),
+        "ETH": g1.tolist(),
+        "BCH": g2.tolist(),
+        "LTC": g3.tolist(),
+    }
+    start = pd.Timestamp("2024-01-01 00:00", tz="UTC")
+    bars = {}
+    for sym, lp in logs.items():
+        rows = []
+        for d, v in enumerate(lp):
+            c = round(base * np.exp(v), 2)
+            o = c * (1 + rng.normal(0, 0.01))
+            rows.append({
+                "timestamp": start + pd.Timedelta(days=d),
+                "open": round(o, 2),
+                "high": round(max(o, c) * 1.01, 2),
+                "low": round(min(o, c) * 0.99, 2),
+                "close": c,
+                "volume": 1000.0,
+            })
+        bars[f"{sym}/USDT:USDT"] = pd.DataFrame(rows)
+    return bars
+
+
+@pytest.mark.parametrize("method", ["engle_granger", "johansen"])
+def test_cointegrated_arb_builds_book(method):
+    """Stat-arb enters a balanced long/short book when the spread deviates."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "BCH/USDT:USDT", "LTC/USDT:USDT"]
+    bars = make_cointegrated_bars()
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="cointegrated_arb",
+        strategy_params={"method": method, "estimation_window": 90,
+                         "reestimate_every": 20, "entry_z": 0.5, "exit_z": 0.0},
+        start="2024-01-01", end="2024-06-15", open_report=False,
+    )
+    runner = BacktestRunner(cfg)
+    result = runner.run(bars=bars)
+    assert result.status == JobStatus.DONE, result.error
+    assert result.num_trades >= 2
+
+    sides = {iid.value.split(":")[0].replace("USDT", ""): side
+             for iid, side in runner.strategy.position_map.items()}
+    # Final spread strongly negative => LONG book: primary (weight +1) is long,
+    # the negative-weight hedge BCH is short, and the book is balanced (both
+    # sides present). Coeff estimates carry short-sample noise, so only assert
+    # the robust balanced-book invariants.
+    assert sides["BTC"] == OrderSide.BUY
+    assert sides["BCH"] == OrderSide.SELL
+    longs = [s for s in sides.values() if s == OrderSide.BUY]
+    shorts = [s for s in sides.values() if s == OrderSide.SELL]
+    assert longs and shorts
+
+
+def test_cointegrated_arb_rejects_bad_method():
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "BCH/USDT:USDT", "LTC/USDT:USDT"]
+    bars = make_cointegrated_bars()
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="cointegrated_arb",
+        strategy_params={"method": "bogus"},
+        start="2024-01-01", end="2024-02-01", open_report=False,
+    )
+    with pytest.raises(ValueError, match="method must be one of"):
         BacktestRunner(cfg).run(bars=bars)
 
 
