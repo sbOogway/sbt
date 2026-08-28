@@ -274,6 +274,11 @@ _STRATEGY_REGISTRY = {
         "XSectionalMomentum",
         "XSectionalMomentumConfig",
     ),
+    "factor_long_short": (
+        "strategies.ohlc.xsectional.factor_long_short",
+        "FactorLongShort",
+        "FactorLongShortConfig",
+    ),
     "trend_filter": (
         "strategies.ohlc.trend_filter",
         "TrendFilter",

@@ -71,6 +71,59 @@ def test_explicit_bars_with_split(orb_config, make_bars):
     assert result.num_trades == result.out_of_sample_num_trades
 
 
+@pytest.mark.parametrize("factor", ["momentum", "volume"])
+def test_factor_long_short_portfolio(factor):
+    """Registered factor_long_short runs as a weekly rank-sort long-short.
+
+    A basket whose symbols trend at different daily steps produces a clear
+    cross-sectional split; the strategy should open long (winners) and short
+    (losers) legs. Runs over both supported factors.
+    """
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    steps = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+    bars = {
+        sym: make_synthetic_bars(days=35, base=100.0, step=s) for sym, s in zip(symbols, steps)
+    }
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1h",
+        strategy_name="factor_long_short",
+        strategy_params={"factor": factor, "lookback_weeks": 1},
+        start="2024-01-01",
+        end="2024-02-05",
+        open_report=False,
+    )
+
+    result = BacktestRunner(cfg).run(bars=bars)
+
+    assert result.status == JobStatus.DONE, result.error
+    assert result.num_trades >= 2, "expected at least one long and one short fill"
+    assert isinstance(result.pnl, float)
+
+
+def test_factor_long_short_rejects_bad_factor():
+    """An unknown factor name fails loudly during strategy construction."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+    bars = {sym: make_synthetic_bars(days=10) for sym in symbols}
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1h",
+        strategy_name="factor_long_short",
+        strategy_params={"factor": "bogus"},
+        start="2024-01-01",
+        end="2024-01-10",
+        open_report=False,
+    )
+
+    with pytest.raises(ValueError, match="factor must be one of"):
+        BacktestRunner(cfg).run(bars=bars)
+
+
 def test_portfolio_end_to_end(monkeypatch):
     """Multi-symbol portfolio mode runs one engine with N legs on a shared account.
 
