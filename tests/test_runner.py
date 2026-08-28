@@ -465,6 +465,84 @@ def test_size_volume_momentum_rejects_bad_signal():
         BacktestRunner(cfg).run(bars=bars)
 
 
+def test_ts_xs_momentum_cs_direction():
+    """mode=cs: long top winners / short top losers by trailing return."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    growths = [-0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    bars = {sym: make_daily_trend_bars(days=60, base=100.0, growth=g)
+            for sym, g in zip(symbols, growths)}
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="ts_xs_momentum",
+        strategy_params={"mode": "cs", "lookback_days": 14, "holding_days": 7,
+                         "top_fraction": 0.3},
+        start="2024-01-01", end="2024-03-01", open_report=False,
+    )
+    runner = BacktestRunner(cfg)
+    result = runner.run(bars=bars)
+    assert result.status == JobStatus.DONE, result.error
+
+    sides = {iid.value.split(":")[0].replace("USDT", ""): side
+             for iid, side in runner.strategy.position_map.items()}
+    # top 2 winners long (LINK, DOT), bottom 2 losers short (BTC, ETH), middle flat.
+    assert sides["LINK"] == OrderSide.BUY
+    assert sides["DOT"] == OrderSide.BUY
+    assert sides["BTC"] == OrderSide.SELL
+    assert sides["ETH"] == OrderSide.SELL
+    assert sides["SOL"] is None
+    assert sides["ADA"] is None
+
+
+def test_ts_xs_momentum_ts_long_when_market_positive():
+    """mode=ts, rising basket: whole market long."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
+    bars = {sym: make_daily_trend_bars(days=60, base=100.0, growth=0.02)
+            for sym in symbols}
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="ts_xs_momentum",
+        strategy_params={"mode": "ts", "lookback_days": 28, "holding_days": 5},
+        start="2024-01-01", end="2024-03-01", open_report=False,
+    )
+    runner = BacktestRunner(cfg)
+    result = runner.run(bars=bars)
+    assert result.status == JobStatus.DONE, result.error
+
+    for iid, side in runner.strategy.position_map.items():
+        assert side == OrderSide.BUY
+
+
+def test_ts_xs_momentum_ts_flat_when_market_negative():
+    """mode=ts, falling basket: flat (no long)."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
+    bars = {sym: make_daily_trend_bars(days=60, base=100.0, growth=-0.02)
+            for sym in symbols}
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="ts_xs_momentum",
+        strategy_params={"mode": "ts", "lookback_days": 28, "holding_days": 5},
+        start="2024-01-01", end="2024-03-01", open_report=False,
+    )
+    runner = BacktestRunner(cfg)
+    result = runner.run(bars=bars)
+    assert result.status == JobStatus.DONE, result.error
+    assert all(side is None for side in runner.strategy.position_map.values())
+
+
+def test_ts_xs_momentum_rejects_bad_mode():
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+    bars = {sym: make_daily_trend_bars(days=20, base=100.0, growth=0.01) for sym in symbols}
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="ts_xs_momentum",
+        strategy_params={"mode": "bogus"},
+        start="2024-01-01", end="2024-01-20", open_report=False,
+    )
+    with pytest.raises(ValueError, match="mode must be one of"):
+        BacktestRunner(cfg).run(bars=bars)
+
+
 def test_portfolio_end_to_end(monkeypatch):
     """Multi-symbol portfolio mode runs one engine with N legs on a shared account.
 

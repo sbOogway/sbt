@@ -294,6 +294,11 @@ _STRATEGY_REGISTRY = {
         "SizeVolumeMomentum",
         "SizeVolumeMomentumConfig",
     ),
+    "ts_xs_momentum": (
+        "strategies.ohlc.xsectional.han_kang_ryu",
+        "TSXSMomentum",
+        "TSXSMomentumConfig",
+    ),
     "trend_filter": (
         "strategies.ohlc.trend_filter",
         "TrendFilter",
