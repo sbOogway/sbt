@@ -52,6 +52,8 @@ class CointegratedArb(SBTPortfolioStrategy):
             raise ValueError("estimation_window and reestimate_every must be positive")
         if not (config.entry_z > config.exit_z >= -config.entry_z):
             raise ValueError("need entry_z > exit_z with entry_z > 0")
+        if config.stop_loss_pct is not None and config.stop_loss_pct <= 0:
+            raise ValueError(f"stop_loss_pct must be > 0 when set, got {config.stop_loss_pct!r}")
         self._order: list[InstrumentId] = [
             make_instrument_id(self.instrument_id.venue.value, sym)
             for sym in getattr(self.config, "symbols", ()) or ()
