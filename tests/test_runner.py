@@ -938,3 +938,98 @@ class TestRunnerPersistence:
         assert stored is not None
         assert stored.num_trades == result.num_trades
         assert stored.pnl == pytest.approx(result.pnl)
+
+
+class TestPerSymbolTakerFee:
+    """Regression tests for the slippage blow-up on sub-dollar coins.
+
+    The old formula ``slippage_ticks * cfg.tick_size / ref_price * 10000``
+    used a BTC-calibrated global tick_size (0.1) and produced 782% effective
+    fees for $0.025 coins. The fix derives a per-symbol tick from the
+    reference price and caps the result.
+    """
+
+    def test_sub_dollar_coin_does_not_blow_up(self):
+        """$0.025 PEPE with slippage_ticks=2 must not produce 700%+ fees.
+
+        Old code: 782%. New code: capped at 1% slippage + taker_fee
+        (~1.05% total). For sub-dollar altcoins on Bybit this is
+        realistic — spreads are wide and per-trade cost is genuinely
+        in the 50-100 bps range.
+        """
+        from sbt.core.runner import _per_symbol_taker_fee
+        from decimal import Decimal
+
+        cfg = RunConfig(
+            exchange="BYBIT",
+            symbol="PEPE/USDT:USDT",
+            slippage_ticks=2,
+            tick_size=0.1,
+            taker_fee=Decimal("0.00055"),
+        )
+        fee = _per_symbol_taker_fee(cfg, ref_price=0.025)
+        fee_pct = float(fee) * 100
+        assert fee_pct < 2.0, f"fee {fee_pct:.3f}% still too high (old bug was 782%)"
+
+    def test_btc_price_gets_reasonable_slippage(self):
+        """$60k BTC with slippage_ticks=2 should get ~10-20 bps slippage."""
+        from sbt.core.runner import _per_symbol_taker_fee
+        from decimal import Decimal
+
+        cfg = RunConfig(
+            exchange="BYBIT",
+            symbol="BTC/USDT:USDT",
+            slippage_ticks=2,
+            tick_size=0.1,
+            taker_fee=Decimal("0.00055"),
+        )
+        fee = _per_symbol_taker_fee(cfg, ref_price=60000.0)
+        fee_pct = float(fee) * 100
+        # ~0.055% taker + per-symbol tick (max(6.0, 0.1)=6.0) => 2*6/60000*10000 = 20 bps
+        assert 0.05 < fee_pct < 0.5, f"fee {fee_pct:.3f}% outside expected band"
+
+    def test_caps_pathological_input(self):
+        """Degenerate ref_price must not produce nonsense fees."""
+        from sbt.core.runner import _per_symbol_taker_fee
+        from decimal import Decimal
+
+        cfg = RunConfig(
+            exchange="BYBIT",
+            symbol="X/USDT:USDT",
+            slippage_ticks=10,
+            tick_size=0.1,
+            taker_fee=Decimal("0.00055"),
+        )
+        fee = _per_symbol_taker_fee(cfg, ref_price=0.0000001)
+        # Capped at 100 bps (1%) slippage + taker_fee.
+        fee_pct = float(fee) * 100
+        assert fee_pct < 1.1, f"fee {fee_pct:.3f}% not capped"
+
+    def test_zero_slippage_ticks_returns_just_taker_fee(self):
+        from sbt.core.runner import _per_symbol_taker_fee
+        from decimal import Decimal
+
+        cfg = RunConfig(
+            exchange="BYBIT",
+            symbol="X/USDT:USDT",
+            slippage_ticks=0,
+            tick_size=0.1,
+            taker_fee=Decimal("0.00055"),
+        )
+        fee = _per_symbol_taker_fee(cfg, ref_price=100.0)
+        assert fee == Decimal("0.00055")
+
+    def test_zero_ref_price_falls_back(self):
+        """Degenerate ref_price=0 must not divide by zero."""
+        from sbt.core.runner import _per_symbol_taker_fee
+        from decimal import Decimal
+
+        cfg = RunConfig(
+            exchange="BYBIT",
+            symbol="X/USDT:USDT",
+            slippage_ticks=2,
+            tick_size=0.1,
+            taker_fee=Decimal("0.00055"),
+        )
+        fee = _per_symbol_taker_fee(cfg, ref_price=0.0)
+        assert fee == Decimal("0.00055")

@@ -162,6 +162,36 @@ def _resolve_currency(code: str):
     return cur if cur is not None else Currency(code, 2, 0, code, 0)
 
 
+# Slippage bps cap. For crypto perpetuals the realistic per-tick cost is
+# 5-20 bps; we cap at 100 bps (1%) as a safety belt against pathological
+# inputs (e.g. a $0.0001 coin where tick_size/ref_price blows up).
+_MAX_SLIPPAGE_BPS = 100.0
+
+
+def _per_symbol_taker_fee(
+    cfg: RunConfig, ref_price: float
+) -> Decimal:
+    """Compute the per-symbol taker fee including slippage.
+
+    The old formula ``slippage_ticks * tick_size / ref_price * 10000``
+    used a single global ``cfg.tick_size`` (BTC-calibrated to 0.1) and
+    produced 782% effective fees for $0.025 coins. The fix derives a
+    per-symbol tick size from the reference price (~1 bps of price, the
+    typical exchange tick for liquid crypto perpetuals), with the global
+    ``cfg.tick_size`` acting as a minimum floor. The result is capped at
+    ``_MAX_SLIPPAGE_BPS`` as a safety belt.
+    """
+    if ref_price <= 0:
+        # Degenerate input — fall back to taker_fee only.
+        return cfg.taker_fee
+    # Per-symbol tick: 1 bps of price, floored by the global config value
+    # so high-priced coins still get at least the configured tick.
+    per_symbol_tick = max(ref_price * 0.0001, cfg.tick_size)
+    slippage_bps = cfg.slippage_ticks * per_symbol_tick / ref_price * 10000
+    slippage_bps = min(slippage_bps, _MAX_SLIPPAGE_BPS)
+    return cfg.taker_fee + Decimal(str(slippage_bps)) / Decimal(10000)
+
+
 def _select_bars_columns(df: pd.DataFrame) -> tuple[pd.DataFrame | None, str | None]:
     """Restrict a frame to the six OHLCV columns; report missing ones."""
     try:
@@ -660,8 +690,7 @@ class BacktestRunner:
                 )
 
             ref_price = float(df["close"].iloc[0])
-            slippage_bps = cfg.slippage_ticks * cfg.tick_size / ref_price * 10000
-            taker_fee = cfg.taker_fee + Decimal(str(slippage_bps)) / Decimal(10000)
+            taker_fee = _per_symbol_taker_fee(cfg, ref_price)
 
             settle_currency = _resolve_currency(cfg.settle_currency)
             interval_nt = parse_interval(cfg.interval)
@@ -819,8 +848,7 @@ class BacktestRunner:
         for sym in symbols:
             frame = frames[sym]
             sym_ref = float(frame["close"].iloc[0])
-            sym_slip = cfg.slippage_ticks * cfg.tick_size / sym_ref * 10000
-            sym_fee = cfg.taker_fee + Decimal(str(sym_slip)) / Decimal(10000)
+            sym_fee = _per_symbol_taker_fee(cfg, sym_ref)
 
             base_code = sym.split("/")[0]
             instrument = make_perpetual(
