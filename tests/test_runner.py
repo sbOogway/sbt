@@ -337,23 +337,10 @@ def test_momentum_reversal_direction():
 
 
 def test_momentum_reversal_overlap_unsupported():
-    """Overlapping 1/K tranches are rejected, not silently approximated."""
-    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT"]
-    bars = {sym: make_daily_trend_bars(days=20, base=100.0, growth=0.01) for sym in symbols}
-    cfg = RunConfig(
-        exchange="TESTEX",
-        symbol=symbols[0],
-        symbols=symbols,
-        interval="1d",
-        strategy_name="momentum_reversal",
-        strategy_params={"overlap": True},
-        start="2024-01-01",
-        end="2024-01-20",
-        open_report=False,
-    )
+    """Overlapping 1/K tranches are not configurable; the field was removed."""
+    from sbt.strategies.ohlc.xsectional.momentum_reversal import MomentumReversalConfig
 
-    with pytest.raises(NotImplementedError, match="overlapping"):
-        BacktestRunner(cfg).run(bars=bars)
+    assert "overlap" not in MomentumReversalConfig.__struct_fields__
 
 
 def test_momentum_reversal_rejects_bad_fraction():

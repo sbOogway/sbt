@@ -31,18 +31,11 @@ class MomentumReversalConfig(SBTPortfolioStrategyConfig, kw_only=True, frozen=Tr
     formation_weeks: int = 2   # J: trailing-return sort window (2/2 sweet spot)
     holding_weeks: int = 2     # K: holding period between WML re-formations
     top_bottom: float = 0.30   # top/bottom fraction treated as winners/losers
-    overlap: bool = False      # paper uses 1/K tranches; not supported here
 
 
 class MomentumReversal(SBTPortfolioStrategy):
     def __init__(self, config: MomentumReversalConfig) -> None:
         super().__init__(config)
-        if config.overlap:
-            raise NotImplementedError(
-                "overlapping 1/K tranches are not supported on the single-"
-                "position-per-leg engine; use overlap=False (non-overlapping "
-                "K-week holding). See wayfinder #34."
-            )
         if not 0 < config.top_bottom < 0.5:
             raise ValueError(
                 f"top_bottom must be in (0, 0.5), got {config.top_bottom}"
