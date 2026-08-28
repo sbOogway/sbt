@@ -167,28 +167,24 @@ class SizeVolumeMomentum(SBTPortfolioStrategy):
         best: set[InstrumentId] = set(ordered[max(0, n - n_sel):])
         worst: set[InstrumentId] = set(ordered[:n_sel])
 
-        for iid in list(self._legs):
+        targets: dict[InstrumentId, OrderSide | None] = {}
+        for iid in self._legs:
             if iid not in active:
-                target: OrderSide | None = None
+                targets[iid] = None
+                continue
+            reverse = active[iid]
+            if reverse:
+                # Reversal: long the worst-signal tail, short the best.
+                targets[iid] = (
+                    OrderSide.BUY if iid in worst
+                    else OrderSide.SELL if iid in best
+                    else None
+                )
             else:
-                reverse = active[iid]
-                if reverse:
-                    # Reversal: long the worst-signal tail, short the best.
-                    target = (
-                        OrderSide.BUY if iid in worst else OrderSide.SELL if iid in best else None
-                    )
-                else:
-                    # Momentum: long the best-signal tail, short the worst.
-                    target = (
-                        OrderSide.BUY if iid in best else OrderSide.SELL if iid in worst else None
-                    )
-            leg = self._leg(iid)
-            if leg.side is None:
-                if target is not None and leg.price:
-                    self.open_position(target, leg.price, iid)
-            elif target is None:
-                self.exit_market(iid)
-            elif leg.side != target:
-                self.exit_market(iid)
-                if leg.price:
-                    self.open_position(target, leg.price, iid)
+                # Momentum: long the best-signal tail, short the worst.
+                targets[iid] = (
+                    OrderSide.BUY if iid in best
+                    else OrderSide.SELL if iid in worst
+                    else None
+                )
+        self.apply_targets(targets)

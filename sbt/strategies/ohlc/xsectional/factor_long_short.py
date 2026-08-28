@@ -136,17 +136,10 @@ class FactorLongShort(SBTPortfolioStrategy):
         losers: set[InstrumentId] = set(ordered[:n_sel])
         winners: set[InstrumentId] = set(ordered[max(0, n - n_sel) :])
 
-        for iid in list(self._legs):
-            leg = self._leg(iid)
-            target: OrderSide | None = (
-                OrderSide.BUY if iid in winners else OrderSide.SELL if iid in losers else None
-            )
-            if leg.side is None:
-                if target is not None and leg.price:
-                    self.open_position(target, leg.price, iid)
-            elif target is None:
-                self.exit_market(iid)
-            elif leg.side != target:
-                self.exit_market(iid)
-                if leg.price:
-                    self.open_position(target, leg.price, iid)
+        targets: dict[InstrumentId, OrderSide | None] = {
+            iid: (OrderSide.BUY if iid in winners
+                  else OrderSide.SELL if iid in losers
+                  else None)
+            for iid in self._legs
+        }
+        self.apply_targets(targets)

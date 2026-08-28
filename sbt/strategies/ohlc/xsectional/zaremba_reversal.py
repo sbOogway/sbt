@@ -139,18 +139,10 @@ class ZarembaReversal(SBTPortfolioStrategy):
             long_side = set(ordered[max(0, n - n_sel):])
             short_side = set(ordered[:n_sel])
 
-        for iid in list(self._legs):
-            leg = self._leg(iid)
-            target: OrderSide | None = (
-                OrderSide.BUY if iid in long_side
-                else OrderSide.SELL if iid in short_side
-                else None
-            )
-            if leg.side is None:
-                if target is not None and leg.price:
-                    self.open_position(target, leg.price, iid)
-            elif target is None:
-                self.exit_market(iid)
-            elif leg.side != target and leg.price:
-                self.exit_market(iid)
-                self.open_position(target, leg.price, iid)
+        targets: dict[InstrumentId, OrderSide | None] = {
+            iid: (OrderSide.BUY if iid in long_side
+                  else OrderSide.SELL if iid in short_side
+                  else None)
+            for iid in self._legs
+        }
+        self.apply_targets(targets)

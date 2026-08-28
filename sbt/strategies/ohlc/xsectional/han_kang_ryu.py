@@ -106,13 +106,11 @@ class TSXSMomentum(SBTPortfolioStrategy):
         if not rets:
             return
         long_market = sum(rets) / len(rets) > 0
-        for iid in list(self._legs):
-            leg = self._leg(iid)
-            if long_market:
-                if leg.side is None and leg.price:
-                    self.open_position(OrderSide.BUY, leg.price, iid)
-            elif leg.side is not None:
-                self.exit_market(iid)
+        targets: dict[InstrumentId, OrderSide | None] = {
+            iid: OrderSide.BUY if long_market else None
+            for iid in self._legs
+        }
+        self.apply_targets(targets)
 
     def _rebalance_cs(self, day_ns: int, start_ns: int) -> None:
         signals: dict[InstrumentId, float] = {}
@@ -128,21 +126,10 @@ class TSXSMomentum(SBTPortfolioStrategy):
         longset: set[InstrumentId] = set(ordered[max(0, n - n_sel):])
         shortset: set[InstrumentId] = set(ordered[:n_sel])
 
-        for iid in list(self._legs):
-            leg = self._leg(iid)
-            if iid in longset:
-                target = OrderSide.BUY
-            elif iid in shortset:
-                target = OrderSide.SELL
-            else:
-                target = None
-            if target is None:
-                if leg.side is not None:
-                    self.exit_market(iid)
-            elif leg.side is None:
-                if leg.price:
-                    self.open_position(target, leg.price, iid)
-            elif leg.side != target:
-                self.exit_market(iid)
-                if leg.price:
-                    self.open_position(target, leg.price, iid)
+        targets: dict[InstrumentId, OrderSide | None] = {
+            iid: (OrderSide.BUY if iid in longset
+                  else OrderSide.SELL if iid in shortset
+                  else None)
+            for iid in self._legs
+        }
+        self.apply_targets(targets)

@@ -491,3 +491,29 @@ class SBTPortfolioStrategy(Strategy):
                 self.exit_market(iid)
                 closed += 1
         return closed
+
+    def apply_targets(
+        self, targets: dict[InstrumentId, OrderSide | None]
+    ) -> None:
+        """Reconcile each leg's position to its target side.
+
+        For every (iid, target) in *targets*:
+
+        - flat leg + non-None target + price => open at target
+        - open leg + None target => flatten
+        - open leg + different target => flatten and reopen at target
+          (reopen guarded by *leg.price*; exit is unconditional)
+
+        Legs not in *targets* are left untouched.
+        """
+        for iid, target in targets.items():
+            leg = self._leg(iid)
+            if leg.side is None:
+                if target is not None and leg.price:
+                    self.open_position(target, leg.price, iid)
+            elif target is None:
+                self.exit_market(iid)
+            elif leg.side != target:
+                self.exit_market(iid)
+                if leg.price:
+                    self.open_position(target, leg.price, iid)
