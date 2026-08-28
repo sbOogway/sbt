@@ -92,7 +92,7 @@ class FactorLongShort(SBTPortfolioStrategy):
         return end, start
 
     @staticmethod
-    def _at_or_before(pairs: list[tuple[int, float, float]], ns: int) -> float | None:
+    def _close_at_or_before(pairs: list[tuple[int, float, float]], ns: int) -> float | None:
         """Close of the last bar at or before *ns* (pairs sorted ascending)."""
         close: float | None = None
         for t, c, _v in pairs:
@@ -111,8 +111,8 @@ class FactorLongShort(SBTPortfolioStrategy):
         factor = self.config.factor
         values: dict[InstrumentId, float] = {}
         for iid, pairs in self._series.items():
-            c_end = self._at_or_before(pairs, end_ns)
-            c_start = self._at_or_before(pairs, start_ns)
+            c_end = self._close_at_or_before(pairs, end_ns)
+            c_start = self._close_at_or_before(pairs, start_ns)
             if c_end is None or c_start is None or c_start <= 0:
                 continue
             if factor == "volume":

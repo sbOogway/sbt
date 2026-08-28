@@ -57,13 +57,17 @@ class MomentumWinners(SBTPortfolioStrategy):
         )
         if instrument_id != self._primary_iid:
             return
-        day_ns = int(pd.Timestamp(bar.ts_event, unit="ns", tz="UTC").normalize().value)
+        day_ns = int(self._ts(bar).normalize().value)
         if self._next_rebal_ns is None:
             self._next_rebal_ns = day_ns
         if not self.trading_active or day_ns < self._next_rebal_ns:
             return
         self._next_rebal_ns = day_ns + self.config.continuation_days * _DAY_NS
         self._rebalance(day_ns)
+
+    @staticmethod
+    def _ts(bar: Bar) -> pd.Timestamp:
+        return pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
 
     @staticmethod
     def _window(
