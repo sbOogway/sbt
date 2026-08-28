@@ -110,7 +110,7 @@ class SizeVolumeMomentum(SBTPortfolioStrategy):
     @staticmethod
     def _dollar_volume(pairs: list[tuple[int, float, float, float]], lo: int, hi: int) -> float:
         return sum(
-            v * c for t, c, _h, v in pairs if lo < t <= hi and v is not None
+            v * c for t, c, _h, v in pairs if lo < t <= hi
         )
 
     def _rebalance(self, ts: pd.Timestamp) -> None:

@@ -111,7 +111,7 @@ class FactorLongShort(SBTPortfolioStrategy):
                 values[iid] = sum(
                     v * c
                     for t, c, v in pairs
-                    if start_ns < t <= end_ns and v is not None
+                    if start_ns < t <= end_ns
                 )
             else:  # momentum
                 values[iid] = c_end / c_start - 1.0

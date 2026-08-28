@@ -91,7 +91,7 @@ class ZarembaReversal(SBTPortfolioStrategy):
     def _dollar_volume(self, pairs: list[tuple[int, float, float]], end_ns: int, days: int) -> float:
         start = end_ns - days * 86_400_000_000_000
         return sum(
-            v * c for t, c, v in pairs if start < t <= end_ns and v is not None
+            v * c for t, c, v in pairs if start < t <= end_ns
         )
 
     def _rebalance(self, ts: pd.Timestamp) -> None:
