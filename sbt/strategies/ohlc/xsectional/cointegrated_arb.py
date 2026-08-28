@@ -22,7 +22,6 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 
 from ....plugins import SBTPortfolioStrategyConfig
-from ....utils import make_instrument_id
 from ...base import SBTPortfolioStrategy
 from .cointegration import fit_weights
 
@@ -54,12 +53,9 @@ class CointegratedArb(SBTPortfolioStrategy):
             raise ValueError("need entry_z > exit_z with entry_z > 0")
         if config.stop_loss_pct is not None and config.stop_loss_pct <= 0:
             raise ValueError(f"stop_loss_pct must be > 0 when set, got {config.stop_loss_pct!r}")
-        self._order: list[InstrumentId] = [
-            make_instrument_id(self.instrument_id.venue.value, sym)
-            for sym in getattr(self.config, "symbols", ()) or ()
-        ]
-        if not self._order:
-            self._order = [self._primary_iid]
+        # Stable iteration order matching config.symbols (or just the primary
+        # leg when the basket is empty); mirrors self._legs in the base class.
+        self._order: list[InstrumentId] = list(self._legs)
         # Per-leg (ts_ns, close)
         self._series: dict[InstrumentId, list[tuple[int, float]]] = {
             iid: [] for iid in self._order
