@@ -299,6 +299,11 @@ _STRATEGY_REGISTRY = {
         "TSXSMomentum",
         "TSXSMomentumConfig",
     ),
+    "momentum_winners": (
+        "strategies.ohlc.xsectional.drogen_hoffstein_otte",
+        "MomentumWinners",
+        "MomentumWinnersConfig",
+    ),
     "trend_filter": (
         "strategies.ohlc.trend_filter",
         "TrendFilter",

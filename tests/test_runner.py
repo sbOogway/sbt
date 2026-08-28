@@ -543,6 +543,68 @@ def test_ts_xs_momentum_rejects_bad_mode():
         BacktestRunner(cfg).run(bars=bars)
 
 
+def test_momentum_winners_long_only():
+    """mode long_only: only the top-quintile winner is long; rest flat."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    growths = [-0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    bars = {sym: make_daily_trend_bars(days=60, base=100.0, growth=g)
+            for sym, g in zip(symbols, growths)}
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="momentum_winners",
+        strategy_params={"formation_days": 30, "continuation_days": 7,
+                         "top_fraction": 0.2, "long_only": True},
+        start="2024-01-01", end="2024-03-01", open_report=False,
+    )
+    runner = BacktestRunner(cfg)
+    result = runner.run(bars=bars)
+    assert result.status == JobStatus.DONE, result.error
+
+    sides = {iid.value.split(":")[0].replace("USDT", ""): side
+             for iid, side in runner.strategy.position_map.items()}
+    assert sides["LINK"] == OrderSide.BUY      # top quintile (1 of 6) winner
+    assert all(sides[s] is None for s in ("BTC", "ETH", "SOL", "ADA", "DOT"))
+
+
+def test_momentum_winners_wml():
+    """mode long_only=False: long top quintile, short bottom quintile."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    growths = [-0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    bars = {sym: make_daily_trend_bars(days=60, base=100.0, growth=g)
+            for sym, g in zip(symbols, growths)}
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="momentum_winners",
+        strategy_params={"formation_days": 30, "continuation_days": 7,
+                         "top_fraction": 0.2, "long_only": False},
+        start="2024-01-01", end="2024-03-01", open_report=False,
+    )
+    runner = BacktestRunner(cfg)
+    result = runner.run(bars=bars)
+    assert result.status == JobStatus.DONE, result.error
+
+    sides = {iid.value.split(":")[0].replace("USDT", ""): side
+             for iid, side in runner.strategy.position_map.items()}
+    assert sides["LINK"] == OrderSide.BUY      # top winner
+    assert sides["BTC"] == OrderSide.SELL      # bottom loser
+    assert all(sides[s] is None for s in ("ETH", "SOL", "ADA", "DOT"))
+
+
+def test_momentum_winners_rejects_bad_top_fraction():
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+    bars = {sym: make_daily_trend_bars(days=20, base=100.0, growth=0.01) for sym in symbols}
+    cfg = RunConfig(
+        exchange="TESTEX", symbol=symbols[0], symbols=symbols, interval="1d",
+        strategy_name="momentum_winners",
+        strategy_params={"top_fraction": 0.8},
+        start="2024-01-01", end="2024-01-20", open_report=False,
+    )
+    with pytest.raises(ValueError, match="top_fraction must be"):
+        BacktestRunner(cfg).run(bars=bars)
+
+
 def test_portfolio_end_to_end(monkeypatch):
     """Multi-symbol portfolio mode runs one engine with N legs on a shared account.
 
