@@ -279,6 +279,11 @@ _STRATEGY_REGISTRY = {
         "FactorLongShort",
         "FactorLongShortConfig",
     ),
+    "zaremba_reversal": (
+        "strategies.ohlc.xsectional.zaremba_reversal",
+        "ZarembaReversal",
+        "ZarembaReversalConfig",
+    ),
     "trend_filter": (
         "strategies.ohlc.trend_filter",
         "TrendFilter",

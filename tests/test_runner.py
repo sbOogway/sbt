@@ -124,6 +124,152 @@ def test_factor_long_short_rejects_bad_factor():
         BacktestRunner(cfg).run(bars=bars)
 
 
+def make_daily_trend_bars(days: int, base: float, growth: float, volume: float = 1000.0):
+    """One daily OHLC bar per day, closing at ``base*(1+g)^d`` (per-day drift)."""
+    rows = []
+    for d in range(days):
+        ts = pd.Timestamp("2024-01-01 00:00", tz="UTC") + pd.Timedelta(days=d)
+        c = round(base * (1 + growth) ** d, 2)
+        o = round(c / (1 + growth), 2)
+        rows.append({
+            "timestamp": ts,
+            "open": o,
+            "high": round(max(o, c) * 1.01, 2),
+            "low": round(min(o, c) * 0.99, 2),
+            "close": c,
+            "volume": volume,
+        })
+    return pd.DataFrame(rows)
+
+
+@pytest.mark.parametrize(
+    "params,reverse",
+    [({"reverse": True}, True), ({"reverse": False}, False)],
+)
+def test_zaremba_reversal_daily(params, reverse):
+    """Registered zaremba_reversal builds a daily quintile long-short.
+
+    Symbols with distinct per-day growth give a clear cross-sectional split in
+    the lagged daily return; both reversal and momentum directions should open
+    a long+short book and rebalance daily.
+    """
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    growths = [-0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    bars = {
+        sym: make_daily_trend_bars(days=30, base=100.0, growth=g)
+        for sym, g in zip(symbols, growths)
+    }
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1d",
+        strategy_name="zaremba_reversal",
+        strategy_params=params,
+        start="2024-01-01",
+        end="2024-01-30",
+        open_report=False,
+    )
+
+    result = BacktestRunner(cfg).run(bars=bars)
+
+    assert result.status == JobStatus.DONE, result.error
+    assert result.num_trades >= 2, "expected at least one long and one short fill"
+    assert isinstance(result.pnl, float)
+
+
+def test_zaremba_reversal_liquidity_momentum_subset():
+    """Restricting to the top liquid coins (momentum role) runs as a subset."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    # Higher-traffic symbols are the "liquid" ones.
+    volumes = [5000.0, 5000.0, 1500.0, 1000.0, 800.0, 500.0]
+    bars = {
+        sym: make_daily_trend_bars(days=30, base=100.0, growth=0.01, volume=v)
+        for sym, v in zip(symbols, volumes)
+    }
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1d",
+        strategy_name="zaremba_reversal",
+        strategy_params={"reverse": False, "liquidity_top_quantile": 0.5},
+        start="2024-01-01",
+        end="2024-01-30",
+        open_report=False,
+    )
+
+    result = BacktestRunner(cfg).run(bars=bars)
+
+    assert result.status == JobStatus.DONE, result.error
+    assert isinstance(result.pnl, float)
+
+
+def test_zaremba_reversal_rejects_bad_quantile():
+    """An out-of-range liquidity_top_quantile fails loudly during construction."""
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+    bars = {sym: make_daily_trend_bars(days=10, base=100.0, growth=0.01) for sym in symbols}
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1d",
+        strategy_name="zaremba_reversal",
+        strategy_params={"liquidity_top_quantile": 1.5},
+        start="2024-01-01",
+        end="2024-01-10",
+        open_report=False,
+    )
+
+    with pytest.raises(ValueError, match="liquidity_top_quantile"):
+        BacktestRunner(cfg).run(bars=bars)
+
+
+@pytest.mark.parametrize(
+    "reverse,expected_long,expected_short",
+    [(True, "BTC/USDT:USDT", "LINK/USDT:USDT"),
+     (False, "LINK/USDT:USDT", "BTC/USDT:USDT")],
+)
+def test_zaremba_reversal_direction(reverse, expected_long, expected_short):
+    """Reversal longs the worst daily performer and shorts the best; momentum flips it.
+
+    Growths: BTC is the biggest daily loser (-0.02), LINK the biggest winner
+    (+0.03); with 6 symbols and top_fraction 0.2 -> one leg on each tail.
+    """
+    symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+               "ADA/USDT:USDT", "DOT/USDT:USDT", "LINK/USDT:USDT"]
+    growths = [-0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
+    bars = {
+        sym: make_daily_trend_bars(days=30, base=100.0, growth=g)
+        for sym, g in zip(symbols, growths)
+    }
+    cfg = RunConfig(
+        exchange="TESTEX",
+        symbol=symbols[0],
+        symbols=symbols,
+        interval="1d",
+        strategy_name="zaremba_reversal",
+        strategy_params={"reverse": reverse},
+        start="2024-01-01",
+        end="2024-01-30",
+        open_report=False,
+    )
+
+    runner = BacktestRunner(cfg)
+    result = runner.run(bars=bars)
+
+    assert result.status == JobStatus.DONE, result.error
+    strat = runner.strategy
+    sides = {
+        iid.value.split(":")[0].replace("USDT", ""): side
+        for iid, side in strat.position_map.items()
+    }
+    assert sides[expected_long.replace("/USDT:USDT", "")] == OrderSide.BUY
+    assert sides[expected_short.replace("/USDT:USDT", "")] == OrderSide.SELL
+
+
 def test_portfolio_end_to_end(monkeypatch):
     """Multi-symbol portfolio mode runs one engine with N legs on a shared account.
 
