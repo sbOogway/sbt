@@ -3,6 +3,11 @@
 Unified pagination with retries and adaptive page sizes for both OHLCV and
 funding rates, plus incremental resume: re-running with an existing output
 file extends it from its newest timestamp instead of refetching everything.
+
+The orchestration (date parsing, resume handling, OHLCV/funding dispatch,
+dataframe merge/dedup/sort, feather write, rename-on-actual-range) lives in
+:func:`run` and is shared by the `sbt data` CLI subcommand and the
+``python -m sbt data`` shim.
 """
 
 import argparse
@@ -145,7 +150,7 @@ def _resume_start_ms(path: Path, data_type: str) -> tuple[int, pd.DataFrame | No
         return None, None
 
 
-def main() -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Download market data via ccxt")
     parser.add_argument(
         "--exchange", default="binance", help="Exchange ID (default: binance)"
@@ -178,8 +183,15 @@ def main() -> None:
         choices=["ohlcv", "funding"],
         help="Data type to fetch (default: ohlcv)",
     )
-    args = parser.parse_args()
+    return parser
 
+
+def run(args: argparse.Namespace) -> None:
+    """Download market data from parsed CLI args.
+
+    Shared by :mod:`sbt.cli.data` (the ``sbt data`` subcommand) and the
+    ``python -m sbt data`` shim — see :func:`main` below.
+    """
     start_dt = datetime.fromisoformat(args.start).replace(tzinfo=UTC)
     end_dt = (
         datetime.fromisoformat(args.end).replace(tzinfo=UTC)
@@ -238,6 +250,11 @@ def main() -> None:
         print(f"Renamed to {output.name} to match the actual data range")
     print(f"Saved {len(df)} rows to {output}")
     print(f"Date range: {df['timestamp'].min()} -> {df['timestamp'].max()}")
+
+
+def main() -> None:
+    """Argparse shim for the ``python -m sbt data`` backward-compat entry point."""
+    run(_build_arg_parser().parse_args())
 
 
 if __name__ == "__main__":
