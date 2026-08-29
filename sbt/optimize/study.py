@@ -14,43 +14,54 @@ from pathlib import Path
 
 import optuna
 
+import pandas as pd
 from ..core.config import RunConfig
+from ..core.job import BacktestResult
 from ..core.runner import BacktestRunner
-from .param_parser import parse_param_spec, suggest_params
+from .param_parser import (
+    get_default_param_space,
+    parse_param_spec,
+    suggest_params,
+)
 from .report import generate_pareto_report, generate_sqn_report
 
 
 def _spawn_child_target(
-    config: RunConfig, job_id: str, objective: str, db_path: str, queue
+    config: RunConfig,
+    job_id: str,
+    objective: str,
+    db_path: str | None,
+    queue,
+    bars: pd.DataFrame | dict[str, pd.DataFrame] | None = None,
 ):
     """Top-level target for spawn-multiprocessing backtest trials."""
     try:
         runner = BacktestRunner(config, db_path=db_path)
         try:
-            result = runner.run(job_id=job_id)
+            result = runner.run(job_id=job_id, bars=bars)
         finally:
             del runner
             gc.collect()
         queue.put(
             {
+                "status": result.status.value,
                 "pnl": result.pnl,
                 "trades": result.num_trades,
                 "sqn": result.sqn if objective == "sqn" else None,
                 "sharpe_ratio": (
                     result.sharpe_ratio if objective == "sharpe" else None
                 ),
+                "error": result.error,
             }
         )
     except BaseException as e:  # noqa: BLE001
-        queue.put({"error": f"{type(e).__name__}: {e}"})
+        queue.put({"status": "failed", "error": f"{type(e).__name__}: {e}"})
 
 
 class LocalExecutor:
-    """Run every trial inline in the current process (original path).
+    """Run trials with process isolation to avoid Nautilus engine memory accumulation.
 
-    Trial #0 runs inline (priming the L2 loader cache); every later trial
-    forks a child so the multi-GB engine state is reclaimed by the OS on
-    exit instead of fragmenting this process.
+    Trial #0 runs inline (priming caches); subsequent trials execute in a spawned child process.
     """
 
     name = "local"
@@ -58,29 +69,41 @@ class LocalExecutor:
     def __init__(
         self,
         base_config: RunConfig,
-        objective: str,
-        primary_label: str,
-        db_path: str = "sbt.db",
+        objective: str = "sharpe",
+        primary_label: str = "Sharpe Ratio",
+        db_path: str | None = "sbt.db",
+        bars: pd.DataFrame | dict[str, pd.DataFrame] | None = None,
     ):
         self.base_config = base_config
         self.objective = objective
         self.primary_label = primary_label
         self.db_path = db_path
+        self.bars = bars
         self._mp_ctx = multiprocessing.get_context("spawn")
 
     @staticmethod
-    def _metrics(result, objective: str) -> dict:
+    def _metrics(result: BacktestResult, objective: str) -> dict:
         return {
+            "status": result.status.value,
             "pnl": result.pnl,
             "trades": result.num_trades,
             "sqn": result.sqn if objective == "sqn" else None,
             "sharpe_ratio": (result.sharpe_ratio if objective == "sharpe" else None),
+            "error": result.error,
         }
+
+    def run_single_trial(
+        self, config: RunConfig, job_id: str, forked: bool = True
+    ) -> dict:
+        """Execute a single trial either inline or in a spawned child process."""
+        if not forked:
+            return self._run_inline(config, job_id)
+        return self._run_forked(config, job_id)
 
     def _run_inline(self, config: RunConfig, job_id: str) -> dict:
         runner = BacktestRunner(config, db_path=self.db_path)
         try:
-            result = runner.run(job_id=job_id)
+            result = runner.run(job_id=job_id, bars=self.bars)
         finally:
             del runner
             gc.collect()
@@ -90,7 +113,7 @@ class LocalExecutor:
         queue = self._mp_ctx.Queue()
         proc = self._mp_ctx.Process(
             target=_spawn_child_target,
-            args=(config, job_id, self.objective, self.db_path, queue),
+            args=(config, job_id, self.objective, self.db_path, queue, self.bars),
             daemon=True,
         )
         proc.start()
@@ -101,13 +124,11 @@ class LocalExecutor:
                 payload = queue.get(timeout=30)
             except Exception:
                 payload = None
-        if not isinstance(payload, dict) or "error" in payload:
-            reason = (
-                payload.get("error")
-                if isinstance(payload, dict)
-                else f"child exited with code {proc.exitcode}"
-            )
-            raise RuntimeError(reason)
+        if not isinstance(payload, dict):
+            return {
+                "status": "failed",
+                "error": f"child process exited with code {proc.exitcode}",
+            }
         return payload
 
     def _bad_result(self) -> tuple | float:
@@ -186,30 +207,8 @@ def run_optuna_study(
     )
 
     if not params:
-        # Default parameter search spaces if none supplied on CLI
-        if strategy_name == "overnight_drift":
-            params = [
-                "rv_lookback=int(3,30)",
-                "vol_max_scale=float(1.0,4.0)",
-                "entry_time=cat(18:00,19:00,20:00,21:00)",
-                "exit_time=cat(04:00,06:00,08:00,14:00)",
-            ]
-        elif strategy_name == "orb":
-            params = [
-                "orb_period=int(1,6)",
-                "atr_period=int(7,28)",
-                "stop_multiple=float(1.0,3.5)",
-                "rv_lookback=int(5,30)",
-                "vol_max_scale=float(1.0,4.0)",
-            ]
-        elif strategy_name == "glucksmann":
-            params = [
-                "bb_length=int(10,30)",
-                "bb_std=float(1.5,2.5)",
-                "sma_fast=int(10,30)",
-                "sma_slow=int(40,70)",
-            ]
-        else:
+        params = get_default_param_space(strategy_name)
+        if not params:
             raise ValueError(
                 f"No --param specs provided for strategy '{strategy_name}'."
             )

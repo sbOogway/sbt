@@ -73,3 +73,72 @@ def suggest_params(
         elif kind == "cat":
             params[name] = trial.suggest_categorical(name, spec[1])
     return params
+
+
+DEFAULT_PARAM_SPACES: dict[str, list[str]] = {
+    "overnight_drift": [
+        "rv_lookback=int(3,30)",
+        "vol_max_scale=float(1.0,4.0)",
+        "entry_time=cat(18:00,19:00,20:00,21:00)",
+        "exit_time=cat(04:00,06:00,08:00,14:00)",
+    ],
+    "orb": [
+        "orb_period=int(1,6)",
+        "atr_period=int(7,28)",
+        "stop_multiple=float(1.0,3.5)",
+        "rv_lookback=int(5,30)",
+        "vol_max_scale=float(1.0,4.0)",
+    ],
+    "glucksmann": [
+        "bb_length=int(10,30)",
+        "bb_std=float(1.5,2.5)",
+        "sma_fast=int(10,30)",
+        "sma_slow=int(40,70)",
+    ],
+    "trix": [
+        "period=int(5,30)",
+        "signal_period=int(3,15)",
+    ],
+    "keltner_channel": [
+        "ema_period=int(10,40)",
+        "atr_period=int(5,20)",
+        "atr_mult=float(1.0,3.5)",
+    ],
+    "negative_volume_index": [
+        "ema_period=int(100,400)",
+    ],
+    "envelope": [
+        "period=int(10,40)",
+        "pct=float(0.5,5.0)",
+    ],
+    "adx_trend": [
+        "adx_period=int(7,30)",
+        "adx_threshold=float(15.0,35.0)",
+        "ema_fast=int(5,20)",
+        "ema_slow=int(15,50)",
+    ],
+    "donchian_adx": [
+        "channel_period=int(10,40)",
+        "adx_period=int(7,30)",
+        "adx_threshold=float(10.0,30.0)",
+    ],
+    "triple_ema_crossover": [
+        "fast_period=int(3,15)",
+        "mid_period=int(10,35)",
+        "slow_period=int(30,100)",
+    ],
+    "trend_filter": [
+        "fast_ma=int(5,20)",
+        "slow_ma=int(100,300)",
+        "filter_period=int(20,100)",
+    ],
+    "zigzag_momentum": [
+        "swing_pct=float(1.0,6.0)",
+        "holding_bars=int(3,20)",
+    ],
+}
+
+
+def get_default_param_space(strategy_name: str) -> list[str] | None:
+    """Return default parameter space specs for *strategy_name* if registered."""
+    return DEFAULT_PARAM_SPACES.get(strategy_name)

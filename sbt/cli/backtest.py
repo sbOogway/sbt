@@ -69,11 +69,6 @@ def run(args: argparse.Namespace) -> None:
         "data_type": args.data_type,
         "l2_max_files": args.l2_max_files,
         "train_val_split": args.train_val_split,
-        "walk_forward": args.walk_forward,
-        "wf_is_months": args.wf_is_months,
-        "wf_oos_months": args.wf_oos_months,
-        "wf_step_months": args.wf_step_months,
-        "wf_trials": args.wf_trials,
     }
 
     if args.no_open:
@@ -92,10 +87,17 @@ def run(args: argparse.Namespace) -> None:
         cfg = cfg.with_overrides(overrides)
 
     # --- Walk-forward mode ---
-    if cfg.walk_forward:
+    if args.walk_forward:
         from ..optimize.walk_forward import run_walk_forward
 
-        wf_result = run_walk_forward(cfg)
+        wf_result = run_walk_forward(
+            cfg,
+            is_months=args.wf_is_months,
+            oos_months=args.wf_oos_months,
+            step_months=args.wf_step_months,
+            trials=args.wf_trials,
+            param_space=args.param,
+        )
         print(f"\n{wf_result.summary_line()}")
         return
 

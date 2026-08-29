@@ -1,21 +1,15 @@
 """Walk-forward validation: rolling IS/OOS windows with per-window optimization.
 
-Design (from #14):
-- 12mo IS / 3mo OOS / 3mo step → ~14 windows on 6yr data
-- 30 Optuna TPE trials per IS window (Sharpe objective)
-- Aggregate: mean OOS Sharpe, consistency (# profitable / total), worst-case Sharpe
-
-This module is called by BacktestRunner when ``walk_forward=True``.
+Design:
+- Rolling in-sample (IS) and out-of-sample (OOS) windows
+- Optuna TPE trials per IS window (Sharpe / Trades / PnL Pareto objective)
+- Executed via LocalExecutor spawn-multiprocessing for memory isolation
+- Aggregated metrics: mean OOS Sharpe, consistency (# profitable / total), worst OOS Sharpe
 """
 
 from __future__ import annotations
 
 import dataclasses
-import datetime
-import gc
-import json
-import multiprocessing
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,57 +19,17 @@ import pandas as pd
 
 from ..core.config import RunConfig
 from ..core.job import BacktestResult, JobStatus
-from ..core.runner import BacktestRunner, _fail, _slice_frame
-from .param_parser import parse_param_spec, suggest_params
+from ..core.runner import BacktestRunner, _slice_frame
+from .param_parser import (
+    DEFAULT_PARAM_SPACES,
+    get_default_param_space,
+    parse_param_spec,
+    suggest_params,
+)
+from .study import LocalExecutor
 
-
-# ------------------------------------------------------------------
-# Per-strategy parameter search spaces
-# ------------------------------------------------------------------
-
-PARAM_SPACES: dict[str, list[str]] = {
-    "trix": [
-        "period=int(5,30)",
-        "signal_period=int(3,15)",
-    ],
-    "keltner_channel": [
-        "ema_period=int(10,40)",
-        "atr_period=int(5,20)",
-        "atr_mult=float(1.0,3.5)",
-    ],
-    "negative_volume_index": [
-        "ema_period=int(100,400)",
-    ],
-    "envelope": [
-        "period=int(10,40)",
-        "pct=float(0.5,5.0)",
-    ],
-    "adx_trend": [
-        "adx_period=int(7,30)",
-        "adx_threshold=float(15.0,35.0)",
-        "ema_fast=int(5,20)",
-        "ema_slow=int(15,50)",
-    ],
-    "donchian_adx": [
-        "channel_period=int(10,40)",
-        "adx_period=int(7,30)",
-        "adx_threshold=float(10.0,30.0)",
-    ],
-    "triple_ema_crossover": [
-        "fast_period=int(3,15)",
-        "mid_period=int(10,35)",
-        "slow_period=int(30,100)",
-    ],
-    "trend_filter": [
-        "fast_ma=int(5,20)",
-        "slow_ma=int(100,300)",
-        "filter_period=int(20,100)",
-    ],
-    "zigzag_momentum": [
-        "swing_pct=float(1.0,6.0)",
-        "holding_bars=int(3,20)",
-    ],
-}
+# Backward-compatible alias
+PARAM_SPACES = DEFAULT_PARAM_SPACES
 
 
 # ------------------------------------------------------------------
@@ -120,98 +74,8 @@ def _generate_windows(
 
 
 # ------------------------------------------------------------------
-# Subprocess-isolated window execution (avoids OOM from engine accumulation)
+# Window execution via LocalExecutor seam
 # ------------------------------------------------------------------
-
-
-def _run_trial_subprocess(
-    cfg: RunConfig,
-    params: dict,
-    bars: pd.DataFrame,
-    job_id: str,
-    bars_start: str,
-    bars_end: str,
-) -> dict:
-    """Run a single backtest trial in a subprocess (clean engine each time).
-
-    Returns a dict with ``sharpe``, ``trades``, ``pnl``, ``status``.
-    """
-    import json as _json
-    import subprocess
-    import sys as _sys
-
-    strategy = _json.dumps(cfg.strategy_name)
-    interval = _json.dumps(cfg.interval)
-    bstart = _json.dumps(bars_start)
-    bend = _json.dumps(bars_end)
-    jid = _json.dumps(job_id)
-    params_json = _json.dumps(params)
-
-    # Build the child script.  Every value is JSON-serialised so there is
-    # no interpolation risk.  The child re-discovers bars from feather so
-    # we avoid serialising DataFrames across process boundaries.
-    lines = [
-        "import os, json, logging",
-        'os.environ["NAUTILUS_LOG_LEVEL"] = "ERROR"',
-        "logging.disable(logging.WARNING)",
-        "import pandas as pd",
-        "from sbt.core.config import RunConfig",
-        "from sbt.core.runner import BacktestRunner",
-        "from sbt.core.feather import to_utc_ts",
-        "from sbt.core.runner import _discover_bars",
-        "",
-        f"cfg = RunConfig.from_toml('config.toml', {strategy}, cli_overrides={{",
-        f"    'interval': {interval},",
-        f"    'start': {bstart},",
-        f"    'end': {bend},",
-        "    'open_report': False,",
-        "    'walk_forward': False,",
-        "})",
-        f"cfg = cfg.with_overrides({params_json})",
-        "",
-        "",
-        "start_ts = to_utc_ts(" + bstart + ")",
-        "end_ts = to_utc_ts(" + bend + ")",
-        "df, err = _discover_bars(cfg, start_ts, end_ts)",
-        'if err:',
-        '    print(json.dumps({"status": "failed", "error": err}))',
-        '    raise SystemExit(1)',
-        "",
-        "runner = BacktestRunner(cfg)",
-        f"result = runner.run(job_id={jid}, bars=df)",
-        "print(json.dumps({",
-        '    "status": result.status.value,',
-        '    "sharpe": result.sharpe_ratio,',
-        '    "trades": result.num_trades,',
-        '    "pnl": result.pnl,',
-        "}))",
-    ]
-    trial_script = "\n".join(lines)
-
-    try:
-        proc = subprocess.run(
-            [_sys.executable, "-c", trial_script],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd=str(Path(__file__).resolve().parents[2]),
-            env={**os.environ, "NAUTILUS_LOG_LEVEL": "ERROR"},
-        )
-    except subprocess.TimeoutExpired:
-        return {"status": "timeout", "sharpe": None, "trades": 0, "pnl": None}
-
-    if proc.returncode != 0:
-        return {"status": "failed", "sharpe": None, "trades": 0, "pnl": None}
-
-    # Extract the last JSON line (nautilus prints before our JSON)
-    for line in reversed(proc.stdout.strip().splitlines()):
-        line = line.strip()
-        if line.startswith("{"):
-            try:
-                return _json.loads(line)
-            except _json.JSONDecodeError:
-                continue
-    return {"status": "failed", "sharpe": None, "trades": 0, "pnl": None}
 
 
 def _optimize_is(
@@ -221,14 +85,24 @@ def _optimize_is(
     n_trials: int,
     job_id: str,
 ) -> dict | None:
-    """Run Optuna on the IS slice; return best params dict or None on failure.
-
-    Each trial runs in a subprocess to avoid nautilus engine memory leaks.
-    """
+    """Run Optuna optimization on the IS slice; return best params dict or None on failure."""
     space = parse_param_spec(param_space)
 
     bars_start = str(bars_is["timestamp"].iloc[0])
     bars_end = str(bars_is["timestamp"].iloc[-1])
+    cfg_is = dataclasses.replace(
+        cfg,
+        start=bars_start,
+        end=bars_end,
+        open_report=False,
+    )
+
+    executor = LocalExecutor(
+        base_config=cfg_is,
+        objective="sharpe",
+        db_path=None,
+        bars=bars_is,
+    )
 
     study = optuna.create_study(
         study_name=f"wf_{job_id}",
@@ -238,14 +112,17 @@ def _optimize_is(
 
     def _objective(trial: optuna.Trial):
         params = suggest_params(trial, space)
-        out = _run_trial_subprocess(cfg, params, bars_is, f"{job_id}_t{trial.number}", bars_start, bars_end)
+        trial_cfg = cfg_is.with_overrides(params)
+        trial_job_id = f"{job_id}_t{trial.number}"
+        # Trial #0 runs inline (primes caches); subsequent trials use spawn isolation
+        metrics = executor.run_single_trial(trial_cfg, trial_job_id, forked=(trial.number > 0))
 
-        if out.get("status") != "done":
+        if metrics.get("status") != "done":
             return (float("-inf"), 0.0, float("-inf"))
 
-        sharpe = out.get("sharpe") or 0.0
-        trades = float(out.get("trades") or 0)
-        pnl = out.get("pnl") or 0.0
+        sharpe = metrics.get("sharpe_ratio") or 0.0
+        trades = float(metrics.get("trades") or 0)
+        pnl = metrics.get("pnl") or 0.0
         if sharpe != sharpe:  # NaN check
             return (float("-inf"), 0.0, float("-inf"))
         return (sharpe, trades, pnl)
@@ -266,23 +143,32 @@ def _run_oos(
     bars_oos: pd.DataFrame,
     job_id: str,
 ) -> BacktestResult:
-    """Run one backtest on the OOS slice with *params*.
-
-    Runs in a subprocess to avoid nautilus engine memory leaks.
-    """
+    """Run one backtest on the OOS slice with *params*."""
     bars_start = str(bars_oos["timestamp"].iloc[0])
     bars_end = str(bars_oos["timestamp"].iloc[-1])
+    cfg_oos = dataclasses.replace(
+        cfg.with_overrides(params),
+        start=bars_start,
+        end=bars_end,
+        open_report=False,
+    )
 
-    out = _run_trial_subprocess(cfg, params, bars_oos, job_id, bars_start, bars_end)
+    executor = LocalExecutor(
+        base_config=cfg_oos,
+        objective="sharpe",
+        db_path=None,
+        bars=bars_oos,
+    )
 
-    status = JobStatus.DONE if out.get("status") == "done" else JobStatus.FAILED
+    metrics = executor.run_single_trial(cfg_oos, job_id, forked=True)
+    status = JobStatus.DONE if metrics.get("status") == "done" else JobStatus.FAILED
     return BacktestResult(
         job_id=job_id,
         status=status,
-        sharpe_ratio=out.get("sharpe"),
-        num_trades=out.get("trades", 0),
-        pnl=out.get("pnl"),
-        error=out.get("error"),
+        sharpe_ratio=metrics.get("sharpe_ratio"),
+        num_trades=metrics.get("trades", 0),
+        pnl=metrics.get("pnl"),
+        error=metrics.get("error"),
     )
 
 
@@ -326,6 +212,10 @@ class WalkForwardResult:
 
 def run_walk_forward(
     cfg: RunConfig,
+    is_months: int = 12,
+    oos_months: int = 3,
+    step_months: int = 3,
+    trials: int = 30,
     param_space: list[str] | None = None,
     bars: pd.DataFrame | None = None,
     funding: pd.DataFrame | None = None,
@@ -333,25 +223,20 @@ def run_walk_forward(
     """Execute walk-forward validation for one strategy.
 
     Returns a WalkForwardResult with per-window and aggregated metrics.
-    Each window runs in a child subprocess to avoid engine memory accumulation.
     """
     strategy = cfg.strategy_name
-    is_months = cfg.wf_is_months
-    oos_months = cfg.wf_oos_months
-    step_months = cfg.wf_step_months
-    n_trials = cfg.wf_trials
 
     if param_space is None:
-        param_space = PARAM_SPACES.get(strategy)
+        param_space = get_default_param_space(strategy)
         if param_space is None:
             raise ValueError(
                 f"No param space registered for '{strategy}'. "
-                f"Available: {sorted(PARAM_SPACES)}. "
+                f"Available: {sorted(DEFAULT_PARAM_SPACES)}. "
                 f"Pass --param specs manually."
             )
 
     # --- Load full data range ---
-    from ..core.feather import find_feather, to_utc_ts
+    from ..core.feather import to_utc_ts
     from ..core.runner import _discover_bars
 
     if bars is not None:
@@ -369,7 +254,7 @@ def run_walk_forward(
     print(f"WALK-FORWARD: {strategy}")
     print(f"Data: {data_start.date()} → {data_end.date()} ({len(full_df)} bars)")
     print(f"Windows: {is_months}mo IS / {oos_months}mo OOS / {step_months}mo step")
-    print(f"Optuna trials per window: {n_trials}")
+    print(f"Optuna trials per window: {trials}")
     print(f"Parameter space: {[s.split('=')[0] for s in param_space]}")
     print(f"{'='*60}", flush=True)
 
@@ -408,7 +293,7 @@ def run_walk_forward(
 
         # --- Optimize on IS ---
         t_is = time.monotonic()
-        best_params = _optimize_is(cfg, param_space, bars_is, n_trials, label)
+        best_params = _optimize_is(cfg, param_space, bars_is, trials, label)
         is_duration = time.monotonic() - t_is
 
         if best_params is None:
