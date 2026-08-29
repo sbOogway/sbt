@@ -1,7 +1,6 @@
 [run]
-exchange = "BYBIT"
-symbol = "BTCUSDT:USDT"
-interval = "1h"
+# exchange, symbol, and interval are now CLI-only (or inferred from
+# --feather). See `sbt backtest --help`.
 capital = 1000
 leverage = 3.0
 start = "2020-01-01"
@@ -10,6 +9,9 @@ maker_fee = 0.0002
 taker_fee = 0.00055
 settle_currency = "USDT"
 slippage_ticks = 2
-tick_size = 0.1
+# tick_size=0 means "derive per-symbol from the price data" (see
+# sbt.core.feather.derive_tick_size). Set to a non-zero value to
+# override per-run.
+tick_size = 0.0
 data_dir = "data"
 

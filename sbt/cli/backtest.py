@@ -19,14 +19,48 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 def run(args: argparse.Namespace) -> None:
     """Execute a backtest from parsed CLI args."""
     from ..core.config import RunConfig
+    from ..core.feather import infer_instrument_from_path
     from ..core.runner import BacktestRunner
     from ..report import print_report
 
+    # Resolve exchange/symbol/interval: CLI > --feather inference.
+    exchange = args.exchange
+    symbol = args.symbol
+    interval = args.interval
+    if args.feather:
+        inferred = infer_instrument_from_path(args.feather)
+        if inferred is None:
+            print(
+                f"ERROR: Could not infer exchange/symbol/interval from "
+                f"--feather path {args.feather!r}. Pass them explicitly."
+            )
+            sys.exit(1)
+        if not exchange:
+            exchange = inferred[0]
+        if not interval:
+            interval = inferred[2]
+        if not symbol and not _flatten_symbols(args.symbols):
+            symbol = inferred[1]
+    missing = []
+    if not exchange:
+        missing.append("--exchange")
+    if not symbol and not _flatten_symbols(args.symbols):
+        missing.append("--symbol or --symbols")
+    if not interval:
+        missing.append("--interval")
+    if missing:
+        print(
+            f"ERROR: Missing required CLI args: {', '.join(missing)}. "
+            f"Either pass them explicitly or supply --feather PATH "
+            f"to infer them from the filename."
+        )
+        sys.exit(1)
+
     cli_overrides = {
-        "exchange": args.exchange,
-        "symbol": args.symbol,
+        "exchange": exchange,
+        "symbol": symbol,
         "symbols": _flatten_symbols(args.symbols),
-        "interval": args.interval,
+        "interval": interval,
         "leverage": args.leverage,
         "start": args.start,
         "end": args.end,

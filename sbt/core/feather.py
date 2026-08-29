@@ -16,6 +16,10 @@ from pathlib import Path
 import pandas as pd
 
 _RANGE_RE = re.compile(r"_(\d{8})_(\d{8})\.feather$")
+_NAME_RE = re.compile(
+    r"^(?P<exchange>[a-z0-9]+)_(?P<symbol>[A-Za-z0-9:\-]+)_(?P<tag>[a-z0-9]+)_"
+    r"\d{8}_\d{8}\.feather$"
+)
 
 
 def to_utc_ts(value: str | pd.Timestamp) -> pd.Timestamp:
@@ -28,6 +32,48 @@ def to_utc_ts(value: str | pd.Timestamp) -> pd.Timestamp:
 def safe_symbol(symbol: str) -> str:
     """Strip the pair separator: ``BTC/USDC:USDC`` -> ``BTCUSDCUSDC``."""
     return symbol.replace("/", "")
+
+
+def from_ccxt_symbol(raw: str) -> str:
+    """Insert the ccxt pair separator: ``BTCUSDT:USDT`` -> ``BTC/USDT:USDT``.
+
+    The convention is: everything before the first occurrence of the
+    quote/settlement suffix (``USDT``, ``USDC``, ``USD``) is the base
+    currency. The ccxt form places a ``/`` between base and quote.
+
+    Examples: ``BTCUSDT:USDT`` -> ``BTC/USDT:USDT``,
+    ``1000PEPEUSDT:USDT`` -> ``1000PEPE/USDT:USDT``,
+    ``BTCUSDC:USDC`` -> ``BTC/USDC:USDC``.
+    """
+    for quote in ("USDT", "USDC", "USD"):
+        if quote in raw:
+            idx = raw.index(quote)
+            return f"{raw[:idx]}/{raw[idx:]}"
+    return raw
+
+
+def infer_instrument_from_path(
+    path: str | Path,
+) -> tuple[str, str, str] | None:
+    """Infer ``(exchange, symbol, tag)`` from a feather file path.
+
+    The filename convention is
+    ``{exchange}_{symbol}_{tag}_{YYYYMMDD}_{YYYYMMDD}.feather`` where
+    *tag* is the bar interval (``1d``, ``1h``, ...) or ``funding``.
+
+    Returns None when the path does not match the convention. The
+    *symbol* is returned in ccxt form (``BTC/USDT:USDT``) with the ``/``
+    pair separator restored, and the *tag* is returned as-is (so
+    ``funding`` passes through unchanged).
+    """
+    name = Path(path).name
+    m = _NAME_RE.match(name)
+    if not m:
+        return None
+    exchange = m.group("exchange")
+    raw_symbol = m.group("symbol")
+    tag = m.group("tag")
+    return (exchange, from_ccxt_symbol(raw_symbol), tag)
 
 
 def derive_tick_size(closes: pd.Series) -> float:

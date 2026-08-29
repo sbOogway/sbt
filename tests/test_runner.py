@@ -1118,3 +1118,69 @@ class TestDeriveTickSize:
         # Real-ish ETH daily closes: consecutive bars change by ~$0.01-0.5.
         closes = pd.Series([3000.00, 3000.01, 3000.02, 3000.01, 3000.03])
         assert derive_tick_size(closes) == pytest.approx(0.01, abs=1e-6)
+
+
+class TestInferInstrumentFromPath:
+    """Tests for feather.infer_instrument_from_path — CLI inference path."""
+
+    def test_bybit_btc(self):
+        from sbt.core.feather import infer_instrument_from_path
+        result = infer_instrument_from_path(
+            "data/bybit_BTCUSDT:USDT_1d_20230101_20260827.feather"
+        )
+        assert result == ("bybit", "BTC/USDT:USDT", "1d")
+
+    def test_bybit_pepe_with_multiplier(self):
+        from sbt.core.feather import infer_instrument_from_path
+        result = infer_instrument_from_path(
+            "data/bybit_1000PEPEUSDT:USDT_1d_20230101_20260827.feather"
+        )
+        assert result == ("bybit", "1000PEPE/USDT:USDT", "1d")
+
+    def test_hyperliquid_usdc(self):
+        from sbt.core.feather import infer_instrument_from_path
+        result = infer_instrument_from_path(
+            "data/hyperliquid_BTCUSDC:USDC_1h_20250601_20260710.feather"
+        )
+        assert result == ("hyperliquid", "BTC/USDC:USDC", "1h")
+
+    def test_funding_tag_passes_through(self):
+        from sbt.core.feather import infer_instrument_from_path
+        result = infer_instrument_from_path(
+            "data/hyperliquid_BTCUSDC:USDC_funding_20251213_20260710.feather"
+        )
+        assert result == ("hyperliquid", "BTC/USDC:USDC", "funding")
+
+    def test_okx(self):
+        from sbt.core.feather import infer_instrument_from_path
+        result = infer_instrument_from_path(
+            "data/okx_ADAUSDT:USDT_1d_20220101_20260827.feather"
+        )
+        assert result == ("okx", "ADA/USDT:USDT", "1d")
+
+    def test_x_prefix_dash(self):
+        from sbt.core.feather import infer_instrument_from_path
+        result = infer_instrument_from_path(
+            "data/hyperliquid_XYZ-GOLDUSDC:USDC_1h_20250601_20260710.feather"
+        )
+        assert result == ("hyperliquid", "XYZ-GOLD/USDC:USDC", "1h")
+
+    def test_unprefixed_returns_none(self):
+        from sbt.core.feather import infer_instrument_from_path
+        assert (
+            infer_instrument_from_path(
+                "BTCUSDT:USDT_1d_20230101_20260827.feather"
+            )
+            is None
+        )
+
+    def test_random_file_returns_none(self):
+        from sbt.core.feather import infer_instrument_from_path
+        assert infer_instrument_from_path("data/random_file.feather") is None
+
+    def test_absolute_path_works(self):
+        from sbt.core.feather import infer_instrument_from_path
+        result = infer_instrument_from_path(
+            "/home/user/data/bybit_BTCUSDT:USDT_1d_20230101_20260827.feather"
+        )
+        assert result == ("bybit", "BTC/USDT:USDT", "1d")

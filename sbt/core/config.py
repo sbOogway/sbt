@@ -22,7 +22,12 @@ class RunConfig:
     """
 
     exchange: str
-    symbol: str
+    # Single-instrument mode (``symbol`` set, ``symbols`` empty) and
+    # multi-instrument portfolio mode (``symbols`` set, ``symbol``
+    # empty) are both valid. At least one must be set; ``from_toml``
+    # and ``parse_cli`` enforce this. ``symbol`` is kept on the
+    # dataclass for backward compat with the runner's internal use.
+    symbol: str = ""
     # Multi-instrument (portfolio) mode. When non-empty and len > 1 the run
     # executes one engine across all symbols on a shared margin account;
     # the strategy must be a portfolio strategy. Empty => single-instrument
@@ -63,7 +68,25 @@ class RunConfig:
     @property
     def all_symbols(self) -> list[str]:
         """The effective tradeable list: ``symbols`` when non-empty else [symbol]."""
-        return self.symbols or [self.symbol]
+        if self.symbols:
+            return list(self.symbols)
+        if self.symbol:
+            return [self.symbol]
+        return []
+
+    def __post_init__(self) -> None:
+        # ``exchange``, ``symbol``/``symbols``, ``interval`` are now
+        # CLI-only (ticket #58 Part 2). They may be empty when
+        # constructed by the test suite or the legacy DB loader, but
+        # the CLI parser enforces them. Warn when both ``symbol`` and
+        # ``symbols`` are empty (would be a no-op run).
+        if not self.symbol and not self.symbols:
+            import warnings
+            warnings.warn(
+                "RunConfig has neither symbol nor symbols set; the run "
+                "will be a no-op.",
+                stacklevel=2,
+            )
 
     def with_overrides(self, params: dict) -> "RunConfig":
         """Return a copy with strategy_params updated from *params*."""
@@ -113,6 +136,11 @@ class RunConfig:
         """Build a RunConfig from a TOML file + optional CLI overrides.
 
         The ``[run]`` table maps 1:1 onto field names; CLI overrides win.
+
+        ``exchange``, ``symbol``, and ``interval`` are NOT loaded from
+        TOML — they must come from the CLI (or be inferred from
+        ``--feather``). Old config.toml files that still carry them
+        are silently dropped here.
         """
         path = Path(toml_path)
         if not path.exists():
@@ -122,6 +150,11 @@ class RunConfig:
             cfg = tomllib.load(f)
 
         data = dict(cfg.get("run", {}))
+        # Drop fields that are now CLI-only. ``from_dict`` also ignores
+        # unknown keys, but we strip them here so the dataclass
+        # constructor never sees them.
+        for k in ("exchange", "symbol", "interval"):
+            data.pop(k, None)
         for k, v in (cli_overrides or {}).items():
             if v is not None:
                 data["feather_path" if k == "feather" else k] = v
@@ -135,7 +168,13 @@ class RunConfig:
 
     @classmethod
     def parse_cli(cls) -> "RunConfig":
-        """Parse CLI arguments and build a RunConfig."""
+        """Parse CLI arguments and build a RunConfig.
+
+        ``exchange``, ``symbol`` (or ``--symbols`` for multi-instrument),
+        and ``interval`` are required CLI args. If ``--feather PATH`` is
+        given, they are inferred from the filename instead
+        (``data/{exchange}_{symbol}_{tag}_{start}_{end}.feather``).
+        """
         parser = argparse.ArgumentParser(description="Run a strategy backtest")
         parser.add_argument(
             "--config",
@@ -143,20 +182,35 @@ class RunConfig:
             help="Path to TOML config file (default: config.toml)",
         )
         parser.add_argument(
-            "--feather", help="Path to feather file (auto-detect if omitted)"
+            "--feather",
+            help=(
+                "Path to a single feather file. When given, exchange/symbol/"
+                "interval are inferred from the filename and the other "
+                "three become optional."
+            ),
         )
-        parser.add_argument("--exchange", help="Override exchange from config")
-        parser.add_argument("--symbol", help="Override trading pair from config")
+        parser.add_argument(
+            "--exchange",
+            help="Exchange/venue name (e.g. 'bybit'). Required unless --feather is given.",
+        )
+        parser.add_argument(
+            "--symbol",
+            help="Single trading pair (e.g. 'BTC/USDT:USDT'). Required unless --feather is given.",
+        )
         parser.add_argument(
             "--symbols",
             action="append",
             metavar="SYMBOL[,SYMBOL...]",
             help=(
                 "Multi-instrument symbols (comma-separated or repeatable); "
-                "enables portfolio mode when more than one is given"
+                "enables portfolio mode when more than one is given. "
+                "Required (instead of --symbol) for portfolio strategies."
             ),
         )
-        parser.add_argument("--interval", help="Override candle interval from config")
+        parser.add_argument(
+            "--interval",
+            help="Candle interval (e.g. '1d', '1h'). Required unless --feather is given.",
+        )
         parser.add_argument("--leverage", help="Override leverage from config")
         parser.add_argument("--start", help="Override backtest start date from config")
         parser.add_argument("--end", help="Override backtest end date from config")
@@ -208,11 +262,53 @@ class RunConfig:
         )
         args = parser.parse_args()
 
+        # Resolve exchange/symbol/interval: CLI > --feather inference.
+        # ``--symbols`` (multi-instrument) overrides ``--symbol`` when both given.
+        feather_inferred = None
+        if args.feather:
+            from .feather import infer_instrument_from_path
+            inferred = infer_instrument_from_path(args.feather)
+            if inferred is None:
+                raise ValueError(
+                    f"Could not infer exchange/symbol/interval from "
+                    f"--feather path {args.feather!r}. Expected a name "
+                    f"like 'data/bybit_BTCUSDT:USDT_1d_20230101_20260827."
+                    f"feather'. Pass --exchange/--symbol/--interval "
+                    f"explicitly."
+                )
+            feather_inferred = inferred
+        # CLI wins over inference; inference fills in missing CLI args.
+        exchange = (args.exchange or (feather_inferred[0] if feather_inferred else None))
+        interval = (args.interval or (feather_inferred[2] if feather_inferred else None))
+        if args.symbols:
+            symbol = None  # multi-instrument mode
+            symbols = _flatten_symbols(args.symbols)
+        elif args.symbol:
+            symbol = args.symbol
+            symbols = None
+        else:
+            symbol = feather_inferred[1] if feather_inferred else None
+            symbols = None
+
+        missing = []
+        if not exchange:
+            missing.append("--exchange")
+        if not symbol and not symbols:
+            missing.append("--symbol or --symbols")
+        if not interval:
+            missing.append("--interval")
+        if missing:
+            raise SystemExit(
+                f"Missing required CLI args: {', '.join(missing)}. "
+                f"Either pass them explicitly or supply --feather PATH "
+                f"to infer them from the filename."
+            )
+
         cli_overrides = {
-            "exchange": args.exchange,
-            "symbol": args.symbol,
-            "symbols": _flatten_symbols(args.symbols),
-            "interval": args.interval,
+            "exchange": exchange,
+            "symbol": symbol,
+            "symbols": symbols,
+            "interval": interval,
             "leverage": args.leverage,
             "start": args.start,
             "end": args.end,
@@ -222,8 +318,6 @@ class RunConfig:
             "l2_max_files": args.l2_max_files,
             "train_val_split": args.train_val_split,
         }
-        # Only override when the flag is present — a constant here would
-        # clobber `open_report` from the TOML [run] table.
         if args.no_open:
             cli_overrides["open_report"] = False
         cfg = cls.from_toml(

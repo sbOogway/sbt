@@ -17,23 +17,47 @@ def add_backtest_args(parser: argparse.ArgumentParser) -> None:
         default="bitcoin_intraday_momentum",
         help="Strategy name (default: bitcoin_intraday_momentum)",
     )
-    parser.add_argument("--exchange", help="Override exchange from config")
-    parser.add_argument("--symbol", help="Override trading pair from config")
+    parser.add_argument(
+        "--exchange",
+        help=(
+            "Exchange/venue name (e.g. 'bybit'). Required unless --feather "
+            "is given (then inferred from the filename)."
+        ),
+    )
+    parser.add_argument(
+        "--symbol",
+        help=(
+            "Single trading pair (e.g. 'BTC/USDT:USDT'). Required unless "
+            "--feather is given (then inferred from the filename)."
+        ),
+    )
     parser.add_argument(
         "--symbols",
         action="append",
         metavar="SYMBOL[,SYMBOL...]",
         help=(
             "Multi-instrument symbols (comma-separated or repeatable); "
-            "enables portfolio mode when more than one is given"
+            "enables portfolio mode when more than one is given. "
+            "Required (instead of --symbol) for portfolio strategies."
         ),
     )
-    parser.add_argument("--interval", help="Override candle interval from config")
+    parser.add_argument(
+        "--interval",
+        help=(
+            "Candle interval (e.g. '1d', '1h'). Required unless --feather "
+            "is given (then inferred from the filename)."
+        ),
+    )
     parser.add_argument("--leverage", help="Override leverage from config")
     parser.add_argument("--start", help="Override backtest start date from config")
     parser.add_argument("--end", help="Override backtest end date from config")
     parser.add_argument(
-        "--feather", help="Path to feather file (auto-detect if omitted)"
+        "--feather",
+        help=(
+            "Path to a single feather file. When given, exchange/symbol/"
+            "interval are inferred from the filename and the other "
+            "three become optional."
+        ),
     )
     parser.add_argument(
         "--no-open",
