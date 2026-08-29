@@ -30,6 +30,41 @@ def safe_symbol(symbol: str) -> str:
     return symbol.replace("/", "")
 
 
+def derive_tick_size(closes: pd.Series) -> float:
+    """Best-effort price-tick from a close-price series.
+
+    Strategy:
+    1. Smallest non-zero abs diff between consecutive closes. Works for
+       high-priced coins (BTC: 0.1, ETH: 0.01).
+    2. If the smallest non-zero diff is below float resolution
+       (sub-cent coins where daily changes are invisible to float64), fall
+       back to a price-magnitude heuristic: ``ref_price * 1e-4`` capped
+       to ``[1e-8, 1.0]``. This matches Bybit's typical micro-tick for
+       altcoins.
+    3. If the series is too short to compute a diff, return a default
+       of 0.01 (the ETH-scale tick).
+    """
+    if len(closes) < 2:
+        return 0.01
+    diffs = closes.diff().dropna().abs()
+    nonzero = diffs[diffs > 0]
+    if len(nonzero) > 0:
+        tick = float(nonzero.min())
+        # If the tick is suspiciously large relative to the price
+        # (e.g. a single volatile move between two bars), clamp to
+        # 1% of the median price.
+        median = float(closes.median())
+        if median > 0 and tick > median * 0.01:
+            return max(median * 1e-4, 1e-8)
+        return tick
+    # No non-zero diffs (constant prices or sub-float resolution).
+    median = float(closes.median())
+    if median <= 0:
+        return 0.01
+    # Price-magnitude heuristic: 1 bps of the median price, clamped.
+    return min(max(median * 1e-4, 1e-8), 1.0)
+
+
 def feather_path(
     exchange: str,
     symbol: str,

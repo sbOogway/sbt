@@ -945,17 +945,16 @@ class TestPerSymbolTakerFee:
 
     The old formula ``slippage_ticks * cfg.tick_size / ref_price * 10000``
     used a BTC-calibrated global tick_size (0.1) and produced 782% effective
-    fees for $0.025 coins. The fix derives a per-symbol tick from the
-    reference price and caps the result.
+    fees for $0.025 coins. The fix uses a per-symbol tick_size (derived
+    from the price data) and caps the result.
     """
 
     def test_sub_dollar_coin_does_not_blow_up(self):
         """$0.025 PEPE with slippage_ticks=2 must not produce 700%+ fees.
 
-        Old code: 782%. New code: capped at 1% slippage + taker_fee
-        (~1.05% total). For sub-dollar altcoins on Bybit this is
-        realistic — spreads are wide and per-trade cost is genuinely
-        in the 50-100 bps range.
+        Old code: 782%. With cfg.tick_size=0 (the default, no
+        override) and the per-symbol tick from the data (~1e-6 for
+        sub-cent), slippage is ~0.8 bps + taker_fee. Capped at 1%.
         """
         from sbt.core.runner import _per_symbol_taker_fee
         from decimal import Decimal
@@ -964,15 +963,20 @@ class TestPerSymbolTakerFee:
             exchange="BYBIT",
             symbol="PEPE/USDT:USDT",
             slippage_ticks=2,
-            tick_size=0.1,
+            tick_size=0.0,  # no override
             taker_fee=Decimal("0.00055"),
         )
-        fee = _per_symbol_taker_fee(cfg, ref_price=0.025)
+        fee = _per_symbol_taker_fee(cfg, ref_price=0.025, tick_size=1e-6)
         fee_pct = float(fee) * 100
         assert fee_pct < 2.0, f"fee {fee_pct:.3f}% still too high (old bug was 782%)"
 
     def test_btc_price_gets_reasonable_slippage(self):
-        """$60k BTC with slippage_ticks=2 should get ~10-20 bps slippage."""
+        """$60k BTC with slippage_ticks=2 should get ~10-20 bps slippage.
+
+        With the per-symbol tick from the data (0.1 for BTC) and
+        cfg.tick_size=0 (no override), the effective tick is 0.1.
+        2 * 0.1 / 60000 * 10000 = 0.033 bps. Plus taker_fee 0.055%.
+        """
         from sbt.core.runner import _per_symbol_taker_fee
         from decimal import Decimal
 
@@ -980,12 +984,11 @@ class TestPerSymbolTakerFee:
             exchange="BYBIT",
             symbol="BTC/USDT:USDT",
             slippage_ticks=2,
-            tick_size=0.1,
+            tick_size=0.0,  # no override
             taker_fee=Decimal("0.00055"),
         )
-        fee = _per_symbol_taker_fee(cfg, ref_price=60000.0)
+        fee = _per_symbol_taker_fee(cfg, ref_price=60000.0, tick_size=0.1)
         fee_pct = float(fee) * 100
-        # ~0.055% taker + per-symbol tick (max(6.0, 0.1)=6.0) => 2*6/60000*10000 = 20 bps
         assert 0.05 < fee_pct < 0.5, f"fee {fee_pct:.3f}% outside expected band"
 
     def test_caps_pathological_input(self):
@@ -997,10 +1000,10 @@ class TestPerSymbolTakerFee:
             exchange="BYBIT",
             symbol="X/USDT:USDT",
             slippage_ticks=10,
-            tick_size=0.1,
+            tick_size=0.0,
             taker_fee=Decimal("0.00055"),
         )
-        fee = _per_symbol_taker_fee(cfg, ref_price=0.0000001)
+        fee = _per_symbol_taker_fee(cfg, ref_price=0.0000001, tick_size=0.1)
         # Capped at 100 bps (1%) slippage + taker_fee.
         fee_pct = float(fee) * 100
         assert fee_pct < 1.1, f"fee {fee_pct:.3f}% not capped"
@@ -1013,10 +1016,10 @@ class TestPerSymbolTakerFee:
             exchange="BYBIT",
             symbol="X/USDT:USDT",
             slippage_ticks=0,
-            tick_size=0.1,
+            tick_size=0.0,
             taker_fee=Decimal("0.00055"),
         )
-        fee = _per_symbol_taker_fee(cfg, ref_price=100.0)
+        fee = _per_symbol_taker_fee(cfg, ref_price=100.0, tick_size=0.1)
         assert fee == Decimal("0.00055")
 
     def test_zero_ref_price_falls_back(self):
@@ -1028,8 +1031,90 @@ class TestPerSymbolTakerFee:
             exchange="BYBIT",
             symbol="X/USDT:USDT",
             slippage_ticks=2,
-            tick_size=0.1,
+            tick_size=0.0,
             taker_fee=Decimal("0.00055"),
         )
-        fee = _per_symbol_taker_fee(cfg, ref_price=0.0)
+        fee = _per_symbol_taker_fee(cfg, ref_price=0.0, tick_size=0.1)
         assert fee == Decimal("0.00055")
+
+    def test_uses_actual_per_symbol_tick(self):
+        """The per-symbol tick_size (not the global cfg.tick_size) drives slippage.
+
+        With cfg.tick_size=0 (no override) and a per-symbol tick of
+        1e-6 (sub-cent), the effective tick is 1e-6, giving ~0.8 bps
+        slippage. This is the key fix for the 782% fee bug.
+        """
+        from sbt.core.runner import _per_symbol_taker_fee
+        from decimal import Decimal
+
+        cfg = RunConfig(
+            exchange="BYBIT",
+            symbol="X/USDT:USDT",
+            slippage_ticks=2,
+            tick_size=0.0,  # no override
+            taker_fee=Decimal("0.00055"),
+        )
+        fee = _per_symbol_taker_fee(cfg, ref_price=0.025, tick_size=1e-6)
+        fee_pct = float(fee) * 100
+        # 2 * 1e-6 / 0.025 * 10000 = 0.8 bps + 5.5 bps taker = 6.3 bps = 0.063%
+        assert fee_pct < 0.1, f"fee {fee_pct:.4f}% should use per-symbol tick"
+
+    def test_cfg_tick_size_as_override(self):
+        """When cfg.tick_size > 0 it replaces the derived per-symbol tick."""
+        from sbt.core.runner import _per_symbol_taker_fee
+        from decimal import Decimal
+
+        cfg = RunConfig(
+            exchange="BYBIT",
+            symbol="X/USDT:USDT",
+            slippage_ticks=2,
+            tick_size=1.0,  # explicit override
+            taker_fee=Decimal("0.00055"),
+        )
+        # With override 1.0 and ref_price 100: 2*1.0/100*10000 = 200 bps (capped to 100).
+        fee = _per_symbol_taker_fee(cfg, ref_price=100.0, tick_size=0.01)
+        fee_pct = float(fee) * 100
+        # Capped at 1% + taker.
+        assert 0.5 < fee_pct < 2.0, f"fee {fee_pct:.3f}% should use override tick"
+
+
+class TestDeriveTickSize:
+    """Tests for feather.derive_tick_size — the per-symbol tick inference."""
+
+    def test_btc_returns_0_1(self):
+        """BTC daily closes have a $0.1 tick."""
+        from sbt.core.feather import derive_tick_size
+        # Real-ish BTC daily closes (Jan 2023): consecutive bars change by ~$0.1-50.
+        closes = pd.Series([16622.5, 16622.6, 16622.7, 16622.5, 16622.8])
+        assert derive_tick_size(closes) == pytest.approx(0.1, abs=1e-6)
+
+    def test_sub_cent_uses_heuristic(self):
+        """Sub-cent coins: min diff is below float, fall back to heuristic."""
+        from sbt.core.feather import derive_tick_size
+        # PEPE-scale closes: median ~0.001, min diff is 0 (float resolution).
+        closes = pd.Series([0.0010593, 0.0019569, 0.0037358, 0.0026265, 0.0027905])
+        tick = derive_tick_size(closes)
+        # Heuristic: median * 1e-4 = 0.001 * 1e-4 = 1e-7, clamped to [1e-8, 1.0].
+        assert 1e-8 <= tick <= 1.0
+
+    def test_short_series_returns_default(self):
+        """Fewer than 2 bars -> default 0.01."""
+        from sbt.core.feather import derive_tick_size
+        assert derive_tick_size(pd.Series([100.0])) == 0.01
+        assert derive_tick_size(pd.Series([])) == 0.01
+
+    def test_clamps_outlier_to_1pct_of_median(self):
+        """A single large diff between two bars (volatile move) gets clamped."""
+        from sbt.core.feather import derive_tick_size
+        # Three bars: 100, 100.01, 200 — diffs are 0.01 and 99.99.
+        # 99.99 > 100 * 0.01 = 1.0, so we clamp to max(100 * 1e-4, 1e-8) = 0.01.
+        closes = pd.Series([100.0, 100.01, 200.0])
+        tick = derive_tick_size(closes)
+        assert tick == pytest.approx(0.01, abs=1e-6)
+
+    def test_eth_returns_0_01(self):
+        """ETH daily closes have a $0.01 tick."""
+        from sbt.core.feather import derive_tick_size
+        # Real-ish ETH daily closes: consecutive bars change by ~$0.01-0.5.
+        closes = pd.Series([3000.00, 3000.01, 3000.02, 3000.01, 3000.03])
+        assert derive_tick_size(closes) == pytest.approx(0.01, abs=1e-6)

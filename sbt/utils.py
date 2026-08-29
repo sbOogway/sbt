@@ -445,9 +445,21 @@ def make_perpetual(
     base_currency=BTC,
     quote_currency=USDT,
     settlement_currency=USDT,
+    price_increment: float | None = None,
 ) -> CryptoPerpetual:
+    """Build the canonical CryptoPerpetual for a symbol on a venue.
+
+    ``price_increment`` is the exchange's tick size for this symbol. When
+    None, defaults to 0.1 (the BTC-scale tick used by most large-cap
+    crypto perps). Callers should derive the real tick from the data
+    (see ``feather.derive_tick_size``) or the exchange's instrument
+    spec, not rely on the default.
+    """
     inst_id = make_instrument_id(venue_name, symbol_str)
     raw = symbol_str.replace("/", "")
+    if price_increment is None:
+        price_increment = 0.1
+    tick_str = _format_tick_for_price(price_increment)
     return CryptoPerpetual(
         instrument_id=inst_id,
         raw_symbol=Symbol(raw),
@@ -455,16 +467,23 @@ def make_perpetual(
         quote_currency=quote_currency,
         settlement_currency=settlement_currency,
         is_inverse=False,
-        price_precision=1,
-        price_increment=Price.from_str("0.1"),
+        price_precision=_price_precision_for(price_increment),
+        price_increment=Price.from_str(tick_str),
         size_precision=3,
         size_increment=Quantity.from_str("0.001"),
         max_quantity=Quantity.from_str("1000.000"),
         min_quantity=Quantity.from_str("0.001"),
         max_notional=None,
-        min_notional=Money(10.00, settlement_currency),
+        # min_notional scales with price: ~$10 at BTC scale, ~$0.01 at
+        # sub-cent scale. Without this, sub-cent coins are rejected at
+        # the venue level because the min order size exceeds the
+        # available notional.
+        min_notional=Money(
+            max(0.01, min(10.00, price_increment * 1000)),
+            settlement_currency,
+        ),
         max_price=Price.from_str("999999.0"),
-        min_price=Price.from_str("0.1"),
+        min_price=Price.from_str(tick_str),
         margin_init=Decimal("0.0500"),
         margin_maint=Decimal("0.0250"),
         maker_fee=maker_fee,
@@ -472,6 +491,38 @@ def make_perpetual(
         ts_event=0,
         ts_init=0,
     )
+
+
+def _price_precision_for(tick: float) -> int:
+    """Number of decimal places needed to represent *tick* exactly.
+
+    For tick=1.0 -> 1, tick=0.1 -> 1, tick=0.01 -> 2, tick=1e-8 -> 8
+    (capped at 16, the nautilus ``Price.precision`` maximum). Sub-cent
+    crypto perps quote at 8-10 decimals; 16 is far more than any
+    real instrument needs. Must match the precision of
+    ``Price.from_str(_format_tick_for_price(tick))``.
+    """
+    if tick >= 1:
+        return 1
+    s = f"{tick:.10f}".rstrip("0")
+    if "." in s:
+        return min(len(s.split(".")[1]), 16)
+    return 0
+
+
+def _format_tick_for_price(tick: float) -> str:
+    """Format a tick float for ``Price.from_str`` without spurious precision.
+
+    ``str(0.040000000000020464)`` gives 18 decimal places which exceeds
+    nautilus's max precision (16). Use ``f"{tick:.10f}".rstrip("0")``
+    to round to a reasonable number of digits and strip trailing zeros.
+    """
+    if tick >= 1:
+        return f"{tick:.1f}"
+    s = f"{tick:.10f}".rstrip("0")
+    if not s.endswith("."):
+        return s
+    return s + "0"  # Price.from_str requires a decimal point + digit
 
 
 _INTERVAL_MAP = {

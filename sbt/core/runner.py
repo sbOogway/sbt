@@ -39,7 +39,7 @@ from ..utils import (
 )
 from ..plugins import RunnerPlugin, Window, get_runner_plugin_class
 from .config import RunConfig
-from .feather import find_feather, to_utc_ts
+from .feather import derive_tick_size, find_feather, to_utc_ts
 from .job import BacktestResult, JobStatus
 from .l2 import (
     list_l2_instruments,
@@ -169,25 +169,21 @@ _MAX_SLIPPAGE_BPS = 100.0
 
 
 def _per_symbol_taker_fee(
-    cfg: RunConfig, ref_price: float
+    cfg: RunConfig, ref_price: float, tick_size: float
 ) -> Decimal:
     """Compute the per-symbol taker fee including slippage.
 
-    The old formula ``slippage_ticks * tick_size / ref_price * 10000``
-    used a single global ``cfg.tick_size`` (BTC-calibrated to 0.1) and
-    produced 782% effective fees for $0.025 coins. The fix derives a
-    per-symbol tick size from the reference price (~1 bps of price, the
-    typical exchange tick for liquid crypto perpetuals), with the global
-    ``cfg.tick_size`` acting as a minimum floor. The result is capped at
-    ``_MAX_SLIPPAGE_BPS`` as a safety belt.
+    Uses the per-symbol ``tick_size`` (derived from the price data via
+    ``derive_tick_size``) as the source of truth. The global
+    ``cfg.tick_size`` is an optional per-run override: if it's > 0 it
+    replaces the derived tick entirely (not a floor). Set
+    ``cfg.tick_size=0`` (the default) to use the derived per-symbol
+    tick. The result is capped at ``_MAX_SLIPPAGE_BPS`` as a safety belt.
     """
-    if ref_price <= 0:
-        # Degenerate input — fall back to taker_fee only.
+    if ref_price <= 0 or tick_size <= 0:
         return cfg.taker_fee
-    # Per-symbol tick: 1 bps of price, floored by the global config value
-    # so high-priced coins still get at least the configured tick.
-    per_symbol_tick = max(ref_price * 0.0001, cfg.tick_size)
-    slippage_bps = cfg.slippage_ticks * per_symbol_tick / ref_price * 10000
+    effective_tick = cfg.tick_size if cfg.tick_size > 0 else tick_size
+    slippage_bps = cfg.slippage_ticks * effective_tick / ref_price * 10000
     slippage_bps = min(slippage_bps, _MAX_SLIPPAGE_BPS)
     return cfg.taker_fee + Decimal(str(slippage_bps)) / Decimal(10000)
 
@@ -690,7 +686,8 @@ class BacktestRunner:
                 )
 
             ref_price = float(df["close"].iloc[0])
-            taker_fee = _per_symbol_taker_fee(cfg, ref_price)
+            tick_size = derive_tick_size(df["close"])
+            taker_fee = _per_symbol_taker_fee(cfg, ref_price, tick_size)
 
             settle_currency = _resolve_currency(cfg.settle_currency)
             interval_nt = parse_interval(cfg.interval)
@@ -717,6 +714,7 @@ class BacktestRunner:
                 base_currency=_resolve_currency(base_code),
                 settlement_currency=settle_currency,
                 quote_currency=settle_currency,
+                price_increment=tick_size,
             )
             engine.add_instrument(instrument)
 
@@ -848,7 +846,8 @@ class BacktestRunner:
         for sym in symbols:
             frame = frames[sym]
             sym_ref = float(frame["close"].iloc[0])
-            sym_fee = _per_symbol_taker_fee(cfg, sym_ref)
+            sym_tick = derive_tick_size(frame["close"])
+            sym_fee = _per_symbol_taker_fee(cfg, sym_ref, sym_tick)
 
             base_code = sym.split("/")[0]
             instrument = make_perpetual(
@@ -859,6 +858,7 @@ class BacktestRunner:
                 base_currency=_resolve_currency(base_code),
                 settlement_currency=settle_currency,
                 quote_currency=settle_currency,
+                price_increment=sym_tick,
             )
             engine.add_instrument(instrument)
             instruments[sym] = instrument
