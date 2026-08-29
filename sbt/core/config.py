@@ -1,6 +1,5 @@
 """Fully resolved backtest configuration."""
 
-import argparse
 import dataclasses
 import tomllib
 from dataclasses import dataclass, field
@@ -24,8 +23,8 @@ class RunConfig:
     exchange: str
     # Single-instrument mode (``symbol`` set, ``symbols`` empty) and
     # multi-instrument portfolio mode (``symbols`` set, ``symbol``
-    # empty) are both valid. At least one must be set; ``from_toml``
-    # and ``parse_cli`` enforce this. ``symbol`` is kept on the
+    # empty) are both valid. At least one must be set; :func:`from_cli_args`
+    # (the CLI assembly path) enforces this. ``symbol`` is kept on the
     # dataclass for backward compat with the runner's internal use.
     symbol: str = ""
     # Multi-instrument (portfolio) mode. When non-empty and len > 1 the run
@@ -160,173 +159,129 @@ class RunConfig:
         return cls.from_dict(data)
 
     @classmethod
-    def parse_cli(cls) -> "RunConfig":
-        """Parse CLI arguments and build a RunConfig.
+    def from_cli_args(cls, args) -> "RunConfig":
+        """Build a RunConfig from a parsed argparse Namespace.
 
-        ``exchange``, ``symbol`` (or ``--symbols`` for multi-instrument),
-        and ``interval`` are required CLI args. If ``--feather PATH`` is
-        given, they are inferred from the filename instead
-        (``data/{exchange}_{symbol}_{tag}_{start}_{end}.feather``).
+        Single entry point for the ``sbt backtest`` and ``sbt optimize
+        --walk-forward`` subcommands. Resolves ``--feather`` inference,
+        validates the required exchange/symbol/interval triple, builds
+        the cli_overrides dict, then applies any ``--param`` overrides.
+
+        Raises ``ValueError`` on missing required args or unparseable
+        ``--feather``; CLI subcommands translate that to a user-facing
+        error and ``sys.exit(1)``.
         """
-        parser = argparse.ArgumentParser(description="Run a strategy backtest")
-        parser.add_argument(
-            "--config",
-            default="config.toml",
-            help="Path to TOML config file (default: config.toml)",
-        )
-        parser.add_argument(
-            "--feather",
-            help=(
-                "Path to a single feather file. When given, exchange/symbol/"
-                "interval are inferred from the filename and the other "
-                "three become optional."
-            ),
-        )
-        parser.add_argument(
-            "--exchange",
-            help="Exchange/venue name (e.g. 'bybit'). Required unless --feather is given.",
-        )
-        parser.add_argument(
-            "--symbol",
-            help="Single trading pair (e.g. 'BTC/USDT:USDT'). Required unless --feather is given.",
-        )
-        parser.add_argument(
-            "--symbols",
-            action="append",
-            metavar="SYMBOL[,SYMBOL...]",
-            help=(
-                "Multi-instrument symbols (comma-separated or repeatable); "
-                "enables portfolio mode when more than one is given. "
-                "Required (instead of --symbol) for portfolio strategies."
-            ),
-        )
-        parser.add_argument(
-            "--interval",
-            help="Candle interval (e.g. '1d', '1h'). Required unless --feather is given.",
-        )
-        parser.add_argument("--leverage", help="Override leverage from config")
-        parser.add_argument("--start", help="Override backtest start date from config")
-        parser.add_argument("--end", help="Override backtest end date from config")
-        parser.add_argument(
-            "--warmup-bars",
-            type=int,
-            help=(
-                "Bars loaded before each window's trading start for indicator "
-                "warm-up (used with --train-val-split)"
-            ),
-        )
-        parser.add_argument(
-            "--data-type",
-            choices=["bar", "l2"],
-            help="Data type: 'bar' (OHLCV) or 'l2' (OrderBookDelta + TradeTicks)",
-        )
-        parser.add_argument(
-            "--l2-max-files",
-            type=int,
-            help="Max L2 parquet files to load (for fast testing)",
-        )
-        parser.add_argument(
-            "--train-val-split",
-            type=float,
-            metavar="FRACTION",
-            help=(
-                "Holdout split: fraction of data span for in-sample training; "
-                "remainder runs as out-of-sample validation (e.g. 0.7)"
-            ),
-        )
-        parser.add_argument(
-            "--no-open",
-            action="store_true",
-            help="Do not open the tearsheet in a browser after the run",
-        )
-        parser.add_argument(
-            "--param",
-            action="append",
-            metavar="NAME=VALUE",
-            help=(
-                "Override a single strategy parameter, e.g. "
-                "--param entry_threshold=0.6 (repeatable)"
-            ),
-        )
-        parser.add_argument(
-            "--strategy",
-            default="bitcoin_intraday_momentum",
-            help="Strategy section name in config (default: bitcoin_intraday_momentum)",
-        )
-        args = parser.parse_args()
-
-        # Resolve exchange/symbol/interval: CLI > --feather inference.
-        # ``--symbols`` (multi-instrument) overrides ``--symbol`` when both given.
-        feather_inferred = None
-        if args.feather:
-            from .feather import infer_instrument_from_path
-            inferred = infer_instrument_from_path(args.feather)
-            if inferred is None:
-                raise ValueError(
-                    f"Could not infer exchange/symbol/interval from "
-                    f"--feather path {args.feather!r}. Expected a name "
-                    f"like 'data/bybit_BTCUSDT:USDT_1d_20230101_20260827."
-                    f"feather'. Pass --exchange/--symbol/--interval "
-                    f"explicitly."
-                )
-            feather_inferred = inferred
-        # CLI wins over inference; inference fills in missing CLI args.
-        exchange = (args.exchange or (feather_inferred[0] if feather_inferred else None))
-        interval = (args.interval or (feather_inferred[2] if feather_inferred else None))
-        if args.symbols:
-            symbol = None  # multi-instrument mode
-            symbols = _flatten_symbols(args.symbols)
-        elif args.symbol:
-            symbol = args.symbol
-            symbols = None
-        else:
-            symbol = feather_inferred[1] if feather_inferred else None
-            symbols = None
-
-        missing = []
-        if not exchange:
-            missing.append("--exchange")
-        if not symbol and not symbols:
-            missing.append("--symbol or --symbols")
-        if not interval:
-            missing.append("--interval")
-        if missing:
-            raise SystemExit(
-                f"Missing required CLI args: {', '.join(missing)}. "
-                f"Either pass them explicitly or supply --feather PATH "
-                f"to infer them from the filename."
-            )
-
-        cli_overrides = {
-            "exchange": exchange,
-            "symbol": symbol,
-            "symbols": symbols,
-            "interval": interval,
-            "leverage": args.leverage,
-            "start": args.start,
-            "end": args.end,
-            "feather": args.feather,
-            "warmup_bars": args.warmup_bars,
-            "data_type": args.data_type,
-            "l2_max_files": args.l2_max_files,
-            "train_val_split": args.train_val_split,
-        }
-        if args.no_open:
-            cli_overrides["open_report"] = False
+        cli_overrides = cli_overrides_from_args(args)
         cfg = cls.from_toml(
             toml_path=args.config,
             strategy_name=args.strategy,
             cli_overrides=cli_overrides,
         )
-        if args.param:
-            overrides = {}
-            for spec in args.param:
-                name, _, raw = spec.partition("=")
-                if not name or not raw:
-                    raise ValueError(f"Invalid --param '{spec}': expected NAME=VALUE")
-                overrides[name.strip()] = _parse_scalar(raw)
+        overrides = param_overrides_from_args(args)
+        if overrides:
             cfg = cfg.with_overrides(overrides)
         return cfg
+
+
+# ----------------------------------------------------------------------
+# CLI assembly helpers (public so subcommand modules can reuse them)
+# ----------------------------------------------------------------------
+
+
+def cli_overrides_from_args(args) -> dict:
+    """Return the ``cli_overrides`` dict for *args*.
+
+    Handles the full CLI -> RunConfig preamble in one place:
+
+    - ``--feather PATH`` inference: when given, exchange/symbol/interval
+      are filled in from the filename unless the user supplied them
+      explicitly. CLI values always win over inference.
+    - Multi-instrument mode: ``--symbols`` (with one or more values)
+      wins over ``--symbol`` and enables portfolio mode.
+    - Required-arg validation: exchange, (symbol or symbols), and
+      interval must all be set after inference; raises ``ValueError``
+      listing the missing ones otherwise.
+    - ``--no-open`` flips ``open_report`` to False.
+
+    ``optimize`` hands the returned dict straight to ``run_optuna_study``;
+    ``backtest`` and ``--walk-forward`` go through :meth:`from_cli_args`.
+    """
+    feather_inferred = None
+    if args.feather:
+        from .feather import infer_instrument_from_path
+
+        inferred = infer_instrument_from_path(args.feather)
+        if inferred is None:
+            raise ValueError(
+                f"Could not infer exchange/symbol/interval from "
+                f"--feather path {args.feather!r}. Expected a name like "
+                f"'data/bybit_BTCUSDT:USDT_1d_20230101_20260827.feather'. "
+                f"Pass --exchange/--symbol/--interval explicitly."
+            )
+        feather_inferred = inferred
+
+    # CLI wins over inference; inference fills in missing CLI args.
+    exchange = (args.exchange or (feather_inferred[0] if feather_inferred else None))
+    interval = (args.interval or (feather_inferred[2] if feather_inferred else None))
+    if args.symbols:
+        symbol = None  # multi-instrument mode
+        symbols = _flatten_symbols(args.symbols)
+    elif args.symbol:
+        symbol = args.symbol
+        symbols = None
+    else:
+        symbol = feather_inferred[1] if feather_inferred else None
+        symbols = None
+
+    missing = []
+    if not exchange:
+        missing.append("--exchange")
+    if not symbol and not symbols:
+        missing.append("--symbol or --symbols")
+    if not interval:
+        missing.append("--interval")
+    if missing:
+        raise ValueError(
+            f"Missing required CLI args: {', '.join(missing)}. "
+            f"Either pass them explicitly or supply --feather PATH "
+            f"to infer them from the filename."
+        )
+
+    overrides = {
+        "exchange": exchange,
+        "symbol": symbol,
+        "symbols": symbols,
+        "interval": interval,
+        "leverage": args.leverage,
+        "start": args.start,
+        "end": args.end,
+        "feather": args.feather,
+        "warmup_bars": args.warmup_bars,
+        "data_type": args.data_type,
+        "l2_max_files": args.l2_max_files,
+        "train_val_split": args.train_val_split,
+    }
+    if getattr(args, "no_open", False):
+        overrides["open_report"] = False
+    return overrides
+
+
+def param_overrides_from_args(args) -> dict:
+    """Parse ``--param NAME=VALUE`` specs from *args* into a dict.
+
+    Each spec is a string like ``entry_threshold=0.6``; values are
+    type-coerced via :func:`_parse_scalar` (int -> float -> bool -> str).
+    Raises ``ValueError`` on a malformed spec (no ``=``).
+    """
+    if not getattr(args, "param", None):
+        return {}
+    overrides = {}
+    for spec in args.param:
+        name, _, raw = spec.partition("=")
+        if not name or not raw:
+            raise ValueError(f"Invalid --param '{spec}': expected NAME=VALUE")
+        overrides[name.strip()] = _parse_scalar(raw)
+    return overrides
 
 
 def _flatten_symbols(values) -> list[str] | None:

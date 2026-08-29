@@ -23,68 +23,22 @@ def run(args: argparse.Namespace) -> None:
     from ..core.runner import BacktestRunner
     from ..report import print_report
 
-    # Resolve exchange/symbol/interval: CLI > --feather inference.
-    exchange = args.exchange
-    symbol = args.symbol
-    interval = args.interval
-    if args.feather:
-        inferred = infer_instrument_from_path(args.feather)
-        if inferred is None:
-            print(
-                f"ERROR: Could not infer exchange/symbol/interval from "
-                f"--feather path {args.feather!r}. Pass them explicitly."
-            )
-            sys.exit(1)
-        if not exchange:
-            exchange = inferred[0]
-        if not interval:
-            interval = inferred[2]
-        if not symbol and not _flatten_symbols(args.symbols):
-            symbol = inferred[1]
-    missing = []
-    if not exchange:
-        missing.append("--exchange")
-    if not symbol and not _flatten_symbols(args.symbols):
-        missing.append("--symbol or --symbols")
-    if not interval:
-        missing.append("--interval")
-    if missing:
+    # Pre-flight check: a known --feather path is required for inference
+    # to make the symbol/exchange/interval triplet optional. Catch the
+    # inference failure here (with a CLI-friendly message + exit code)
+    # so from_cli_args can stay pure for unit tests.
+    if args.feather and infer_instrument_from_path(args.feather) is None:
         print(
-            f"ERROR: Missing required CLI args: {', '.join(missing)}. "
-            f"Either pass them explicitly or supply --feather PATH "
-            f"to infer them from the filename."
+            f"ERROR: Could not infer exchange/symbol/interval from "
+            f"--feather path {args.feather!r}. Pass them explicitly."
         )
         sys.exit(1)
 
-    cli_overrides = {
-        "exchange": exchange,
-        "symbol": symbol,
-        "symbols": _flatten_symbols(args.symbols),
-        "interval": interval,
-        "leverage": args.leverage,
-        "start": args.start,
-        "end": args.end,
-        "feather": args.feather,
-        "warmup_bars": args.warmup_bars,
-        "data_type": args.data_type,
-        "l2_max_files": args.l2_max_files,
-        "train_val_split": args.train_val_split,
-    }
-
-    if args.no_open:
-        cli_overrides["open_report"] = False
-
-    cfg = RunConfig.from_toml(args.config, args.strategy, cli_overrides=cli_overrides)
-
-    if args.param:
-        overrides = {}
-        for spec in args.param:
-            name, _, raw = spec.partition("=")
-            if not name or not raw:
-                print(f"ERROR: Invalid --param '{spec}': expected NAME=VALUE")
-                sys.exit(1)
-            overrides[name.strip()] = _parse_scalar(raw)
-        cfg = cfg.with_overrides(overrides)
+    try:
+        cfg = RunConfig.from_cli_args(args)
+    except ValueError as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
 
     # --- Walk-forward mode ---
     if args.walk_forward:
@@ -151,30 +105,3 @@ def run(args: argparse.Namespace) -> None:
         latest.symlink_to(target)
     except OSError:
         pass
-
-
-def _flatten_symbols(values) -> list[str] | None:
-    """Flatten appended ``--symbols`` specs into a single list of symbols."""
-    if not values:
-        return None
-    out = []
-    for spec in values:
-        for part in spec.split(","):
-            part = part.strip()
-            if part:
-                out.append(part)
-    return out
-
-
-def _parse_scalar(raw: str):
-    """Infer the type of a CLI scalar: int -> float -> bool -> str."""
-    text = raw.strip()
-    for cast in (int, float):
-        try:
-            return cast(text)
-        except ValueError:
-            pass
-    low = text.lower()
-    if low in {"true", "false"}:
-        return low == "true"
-    return text

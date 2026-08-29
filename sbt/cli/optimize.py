@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -35,44 +36,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
 def run(args: argparse.Namespace) -> None:
     """Run an Optuna optimization study from parsed CLI args."""
-    from ..core.config import RunConfig
+    from ..core.config import RunConfig, cli_overrides_from_args
     from ..optimize.study import run_optuna_study
 
-    cli_overrides = {
-        "exchange": args.exchange,
-        "symbol": args.symbol,
-        "interval": args.interval,
-        "leverage": args.leverage,
-        "start": args.start,
-        "end": args.end,
-        "feather": args.feather,
-        "warmup_bars": args.warmup_bars,
-        "data_type": args.data_type,
-        "l2_max_files": args.l2_max_files,
-        "train_val_split": args.train_val_split,
-    }
-
-    if args.no_open:
-        cli_overrides["open_report"] = False
+    cli_overrides = cli_overrides_from_args(args)
 
     # --- Walk-forward mode ---
     if args.walk_forward:
-        from ..core.config import RunConfig
+        try:
+            cfg = RunConfig.from_cli_args(args)
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
         from ..optimize.walk_forward import run_walk_forward
-
-        cfg = RunConfig.from_toml(
-            args.config, args.strategy, cli_overrides=cli_overrides
-        )
-        if args.param:
-            from ..core.config import _parse_scalar
-
-            overrides = {}
-            for spec in args.param:
-                name, _, raw = spec.partition("=")
-                if not name or not raw:
-                    raise ValueError(f"Invalid --param '{spec}': expected NAME=VALUE")
-                overrides[name.strip()] = _parse_scalar(raw)
-            cfg = cfg.with_overrides(overrides)
 
         wf_result = run_walk_forward(
             cfg,
