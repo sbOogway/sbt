@@ -118,28 +118,24 @@ convention exactly.
 
 ### 4.2 `_run_window` — bar mode
 
-1. Frame source: explicit `bars` used as-is; else resolve feather
-   (`cfg.feather_path` or `find_feather`), read, require columns
-   `[timestamp, open, high, low, close, volume]`.
+Unified execution pipeline for an arbitrary universe ($N \ge 1$, where single-symbol is $N=1$):
+
+1. Frame source: explicit `bars` (DataFrame for $N=1$, dict for $N \ge 1$) used as-is;
+   else resolve feather per symbol (`cfg.feather_path` or `find_feather`), read,
+   require columns `[timestamp, open, high, low, close, volume]`.
 2. Discovery path slices to `[start, end]`; explicit frames are trusted
    as-is. <2 rows → FAILED.
-3. Slippage: `slippage_bps = slippage_ticks * tick_size / ref_price * 10000`
-   where `ref_price = first close`; effective
-   `taker_fee = cfg.taker_fee + Decimal(slippage_bps) / 10000` (fee as a
-   notional fraction). This is the ONLY slippage mechanism — no FillModel.
-4. Venue setup: `OmsType.NETTING`, `AccountType.MARGIN`, settle currency
-   from `cfg.settle_currency` (USDT/USDC map else synthesized), starting
-   balance = `cfg.capital`, leverage = `cfg.leverage`.
-5. Instrument: `make_perpetual()` (`utils.py`) — price_precision=1,
-   size_precision=3, id `{SYMBOL}-PERP`.
-6. Bar type: `{instrument_id}-{parse_interval(interval)}-LAST-EXTERNAL`.
-7. Strategy config built by the runner: always passes
-   `instrument_id, bar_type, capital, leverage, backtest_start_date,
-   active_from=start.isoformat(), **cfg.strategy_params`.
-8. Funding side-channel: an explicit `funding` frame wins (sliced to the
-   window); else `find_feather(..., "funding")` matches
-   `{exchange}_{symbol}_funding_*.feather`; loaded rows become
-   `FundingRateUpdate`s (also date-filtered). Missing file just logs.
+3. Slippage: per-symbol `slippage_bps = slippage_ticks * tick_size / ref_price * 10000`
+   where `ref_price = first close` and `tick_size` derived from price data; effective
+   `taker_fee = cfg.taker_fee + Decimal(slippage_bps) / 10000` (capped at 100 bps).
+4. Venue setup: shared `OmsType.NETTING`, `AccountType.MARGIN`, settle currency
+   from `cfg.settle_currency`, starting balance = `cfg.capital`, leverage = `cfg.leverage`.
+5. Instruments: `make_perpetual()` per symbol (`utils.py`) added to shared venue.
+6. Bar types: `{instrument_id}-{parse_interval(interval)}-LAST-EXTERNAL` per symbol.
+7. Strategy config: `_base_strategy_kwargs` + `bar_type` for `SBTBarStrategyConfig`,
+   or `symbols` + `interval` for `SBTPortfolioStrategyConfig`.
+8. Funding side-channel: explicit `funding` frame > feather discovery per symbol > none;
+   loaded rows become `FundingRateUpdate`s. Missing file just logs.
 9. Register custom stats (`CalmarRatio`, `AnnualizedReturn`,
    `RunConfigStatistic`), run engine, collect:
    - objectives: `PnL (total)`, `Sharpe Ratio (252 days)`,

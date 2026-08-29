@@ -37,7 +37,13 @@ from ..utils import (
     make_perpetual,
     parse_interval,
 )
-from ..plugins import RunnerPlugin, Window, get_runner_plugin_class
+from ..plugins import (
+    RunnerPlugin,
+    SBTBarStrategyConfig,
+    SBTPortfolioStrategyConfig,
+    Window,
+    get_runner_plugin_class,
+)
 from .config import RunConfig
 from .feather import derive_tick_size, find_feather, to_utc_ts
 from .job import BacktestResult, JobStatus
@@ -577,189 +583,96 @@ class BacktestRunner:
         t0 = time.monotonic()
         cfg = self.config
 
-        # Multi-instrument (portfolio) mode runs on its own dedicated path:
-        # one engine, N instruments + N bar streams, shared margin account.
-        if cfg.data_type != "l2" and len(cfg.all_symbols) > 1:
-            return self._run_portfolio_window(job_id, start, end, bars, funding, t0)
-
-        # --------------------------------------------------------------
-        # Layer 2 Execution Mode
-        # --------------------------------------------------------------
         if cfg.data_type == "l2":
-            avail = list_l2_instruments(cfg.data_dir)
-            inst_id_str = cfg.symbol
-            if inst_id_str not in avail:
-                matched = [
-                    a
-                    for a in avail
-                    if cfg.symbol.replace("/", "").replace(":", "").lower()
-                    in a.replace("-", "").replace(".", "").lower()
-                ]
-                if matched:
-                    inst_id_str = matched[0]
-                elif avail:
-                    inst_id_str = avail[0]
-                else:
-                    return _fail(
-                        job_id,
-                        f"No L2 instruments found in catalog '{cfg.data_dir}'",
-                    )
+            return self._run_l2_window(job_id, start, end, t0)
+        return self._run_bar_window(job_id, start, end, bars=bars, funding=funding, t0=t0)
 
-            print(f"Loading L2 instrument '{inst_id_str}' from {cfg.data_dir}...")
-            try:
-                instrument = load_l2_instrument(inst_id_str, catalog_dir=cfg.data_dir)
-            except Exception as e:
-                return _fail(job_id, f"Failed loading L2 instrument {inst_id_str}: {e}")
+    # ------------------------------------------------------------------
+    # Layer 2 Execution
+    # ------------------------------------------------------------------
 
-            venue = instrument.id.venue
-            self.venue = venue
-            engine = BacktestEngine(config=BacktestEngineConfig())
-            self.engine = engine
-
-            settle_currency = instrument.settlement_currency or _resolve_currency(
-                cfg.settle_currency
-            )
-            _add_venue(
-                engine,
-                venue,
-                settle_currency=settle_currency,
-                capital=cfg.capital,
-                leverage=cfg.leverage,
-                book_type=BookType.L2_MBP,
-            )
-            engine.add_instrument(instrument)
-
-            # Load L2 deltas and trades (loaders expect plain date strings)
-            start_str = str(to_utc_ts(start))
-            end_str = str(to_utc_ts(end)) if end is not None else None
-            deltas = load_order_book_deltas(
-                instrument,
-                catalog_dir=cfg.data_dir,
-                start=start_str,
-                end=end_str,
-                max_files=cfg.l2_max_files,
-            )
-            if deltas:
-                engine.add_data(deltas)
-
-            trades = load_trade_ticks(
-                instrument,
-                catalog_dir=cfg.data_dir,
-                start=start_str,
-                end=end_str,
-                max_files=cfg.l2_max_files,
-            )
-            if trades:
-                engine.add_data(trades)
-
-            StrategyClass, ConfigClass = get_strategy_class(cfg.strategy_name)
-            strategy_kwargs = _base_strategy_kwargs(cfg, instrument.id, start)
-            # L2 configs subclass SBTStrategyConfig directly: no bar_type.
-            try:
-                strategy_config = _build_strategy_config(ConfigClass, **strategy_kwargs)
-            except (TypeError, ValueError) as e:
-                # TypeError: missing required injected field (wrong tier);
-                # ValueError: unknown strategy_params key.
-                return _fail(job_id, str(e))
-
-        # --------------------------------------------------------------
-        # Bar (OHLCV) Execution Mode
-        # --------------------------------------------------------------
-        else:
-            window_start = to_utc_ts(start)
-            window_end = to_utc_ts(end) if end is not None else None
-
-            if bars is None:
-                df, err = _discover_bars(cfg, window_start, window_end)
-                if err:
-                    return _fail(job_id, err)
+    def _run_l2_window(
+        self,
+        job_id: str,
+        start: str | pd.Timestamp,
+        end: str | pd.Timestamp | None,
+        t0: float,
+    ) -> BacktestResult:
+        cfg = self.config
+        avail = list_l2_instruments(cfg.data_dir)
+        inst_id_str = cfg.symbol
+        if inst_id_str not in avail:
+            matched = [
+                a
+                for a in avail
+                if cfg.symbol.replace("/", "").replace(":", "").lower()
+                in a.replace("-", "").replace(".", "").lower()
+            ]
+            if matched:
+                inst_id_str = matched[0]
+            elif avail:
+                inst_id_str = avail[0]
             else:
-                print("Using caller-supplied data frame for this window.")
-                df, err = _select_bars_columns(bars)
-                if err:
-                    return _fail(job_id, err)
-
-            if len(df) < 2:
                 return _fail(
                     job_id,
-                    f"Not enough bars in [{window_start}, {end}] ({len(df)} rows).",
+                    f"No L2 instruments found in catalog '{cfg.data_dir}'",
                 )
 
-            ref_price = float(df["close"].iloc[0])
-            tick_size = derive_tick_size(df["close"])
-            taker_fee = _per_symbol_taker_fee(cfg, ref_price, tick_size)
+        print(f"Loading L2 instrument '{inst_id_str}' from {cfg.data_dir}...")
+        try:
+            instrument = load_l2_instrument(inst_id_str, catalog_dir=cfg.data_dir)
+        except Exception as e:
+            return _fail(job_id, f"Failed loading L2 instrument {inst_id_str}: {e}")
 
-            settle_currency = _resolve_currency(cfg.settle_currency)
-            interval_nt = parse_interval(cfg.interval)
-            venue = Venue(cfg.exchange)
-            self.venue = venue
+        venue = instrument.id.venue
+        self.venue = venue
+        engine = BacktestEngine(config=BacktestEngineConfig())
+        self.engine = engine
 
-            engine = BacktestEngine(config=BacktestEngineConfig())
-            self.engine = engine
+        settle_currency = instrument.settlement_currency or _resolve_currency(
+            cfg.settle_currency
+        )
+        _add_venue(
+            engine,
+            venue,
+            settle_currency=settle_currency,
+            capital=cfg.capital,
+            leverage=cfg.leverage,
+            book_type=BookType.L2_MBP,
+        )
+        engine.add_instrument(instrument)
 
-            _add_venue(
-                engine,
-                venue,
-                settle_currency=settle_currency,
-                capital=cfg.capital,
-                leverage=cfg.leverage,
-            )
+        # Load L2 deltas and trades (loaders expect plain date strings)
+        start_str = str(to_utc_ts(start))
+        end_str = str(to_utc_ts(end)) if end is not None else None
+        deltas = load_order_book_deltas(
+            instrument,
+            catalog_dir=cfg.data_dir,
+            start=start_str,
+            end=end_str,
+            max_files=cfg.l2_max_files,
+        )
+        if deltas:
+            engine.add_data(deltas)
 
-            base_code = cfg.symbol.split("/")[0]
-            instrument = make_perpetual(
-                cfg.exchange,
-                cfg.symbol,
-                cfg.maker_fee,
-                taker_fee,
-                base_currency=_resolve_currency(base_code),
-                settlement_currency=settle_currency,
-                quote_currency=settle_currency,
-                price_increment=tick_size,
-            )
-            engine.add_instrument(instrument)
+        trades = load_trade_ticks(
+            instrument,
+            catalog_dir=cfg.data_dir,
+            start=start_str,
+            end=end_str,
+            max_files=cfg.l2_max_files,
+        )
+        if trades:
+            engine.add_data(trades)
 
-            bar_type = BarType.from_str(
-                f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL"
-            )
+        StrategyClass, ConfigClass = get_strategy_class(cfg.strategy_name)
+        strategy_kwargs = _base_strategy_kwargs(cfg, instrument.id, start)
+        # L2 configs subclass SBTStrategyConfig directly: no bar_type.
+        try:
+            strategy_config = _build_strategy_config(ConfigClass, **strategy_kwargs)
+        except (TypeError, ValueError) as e:
+            return _fail(job_id, str(e))
 
-            StrategyClass, ConfigClass = get_strategy_class(cfg.strategy_name)
-            strategy_kwargs = _base_strategy_kwargs(cfg, instrument.id, window_start)
-            # Bar-mode configs subclass SBTBarStrategyConfig: bar_type required.
-            strategy_kwargs["bar_type"] = bar_type
-            try:
-                strategy_config = _build_strategy_config(ConfigClass, **strategy_kwargs)
-            except (TypeError, ValueError) as e:
-                # TypeError: missing required injected field (wrong tier);
-                # ValueError: unknown strategy_params key.
-                return _fail(job_id, str(e))
-
-            print(f"Loaded {len(df)} {cfg.interval} bars (ref_price={ref_price}).")
-            bar_updates = load_bars(df, bar_type, instrument)
-            engine.add_data(bar_updates)
-
-            # Funding side-channel: injected frame > feather discovery > none.
-            funding_df = None
-            if funding is not None:
-                funding_df = _slice_frame(funding, window_start, window_end)
-            elif bars is None:
-                funding_path = find_feather(
-                    cfg.exchange,
-                    cfg.symbol,
-                    "funding",
-                    search_dirs=[cfg.data_dir, "."],
-                )
-                if funding_path:
-                    print(f"Loading funding data from {funding_path}...")
-                    funding_df = pd.read_feather(funding_path)
-            else:
-                print("Explicit bars without funding frame; running without funding.")
-            if funding_df is not None:
-                funding_updates = load_funding_rates(funding_df, instrument.id)
-                if funding_updates:
-                    engine.add_data(funding_updates)
-                    print(f"Loaded {len(funding_updates)} funding rate updates.")
-
-        # -- Shared tail: register stats, run, collect -------------------
         _register_stats(engine, cfg, instrument)
         strategy = StrategyClass(config=strategy_config)
         self.strategy = strategy
@@ -771,10 +684,10 @@ class BacktestRunner:
         return _collect_result(engine, strategy, job_id, t0)
 
     # ------------------------------------------------------------------
-    # Portfolio (multi-instrument) execution
+    # Bar (OHLCV) Execution (Unified N >= 1 Universe Pipeline)
     # ------------------------------------------------------------------
 
-    def _run_portfolio_window(
+    def _run_bar_window(
         self,
         job_id: str,
         start: str | pd.Timestamp,
@@ -783,48 +696,60 @@ class BacktestRunner:
         funding: pd.DataFrame | None = None,
         t0: float | None = None,
     ) -> BacktestResult:
-        """Execute one portfolio backtest over the [start, end] window.
-
-        One engine, one venue, one shared margin account, N instruments +
-        N bar streams + N bar_types. ``bars`` may be a ``dict[symbol,
-        frame]`` (explicit seam) or ``None`` (feather discovery per
-        symbol). When ``None``, finds each basket symbol's own feather.
-        """
         if t0 is None:
             t0 = time.monotonic()
         cfg = self.config
         symbols = cfg.all_symbols
+        if not symbols:
+            return _fail(job_id, "No tradeable symbols specified in RunConfig.")
+
         window_start = to_utc_ts(start)
         window_end = to_utc_ts(end) if end is not None else None
 
-        # Resolve per-symbol OHLCV frames.
+        # 1. Resolve & validate per-symbol bar frames
         frames: dict[str, pd.DataFrame] = {}
         if isinstance(bars, dict):
             frames = dict(bars)
-        else:
-            frames = {}
-            for sym in symbols:
-                df, err = _discover_bars(
-                    cfg, window_start, window_end, symbol=sym
+        elif isinstance(bars, pd.DataFrame):
+            if len(symbols) == 1:
+                frames = {symbols[0]: bars}
+            else:
+                return _fail(
+                    job_id,
+                    f"Expected a dict of frames for {len(symbols)} symbols, got single DataFrame.",
                 )
+        else:
+            for sym in symbols:
+                df, err = _discover_bars(cfg, window_start, window_end, symbol=sym)
                 if err:
                     return _fail(job_id, err)
                 frames[sym] = df
 
         missing = [s for s in symbols if s not in frames]
         if missing:
-            return _fail(
-                job_id,
-                f"Missing bars for portfolio symbols {missing}.",
-            )
+            return _fail(job_id, f"Missing bars for portfolio symbols {missing}.")
+
         for sym in symbols:
-            if frames[sym] is None or len(frames[sym]) < 2:
+            df = frames[sym]
+            if bars is not None:
+                if df is None:
+                    return _fail(job_id, f"Missing frame for symbol {sym}.")
+                df, err = _select_bars_columns(df)
+                if err:
+                    return _fail(job_id, err)
+                frames[sym] = df
+            if df is None or len(df) < 2:
+                if len(symbols) == 1:
+                    return _fail(
+                        job_id,
+                        f"Not enough bars in [{window_start}, {end}] ({len(df) if df is not None else 0} rows).",
+                    )
                 return _fail(
                     job_id,
                     f"Not enough bars for {sym} in [{window_start}, {end}].",
                 )
 
-        # Shared venue / account / engine across every instrument.
+        # 2. Setup shared venue, account & engine
         settle_currency = _resolve_currency(cfg.settle_currency)
         interval_nt = parse_interval(cfg.interval)
         venue = Venue(cfg.exchange)
@@ -841,6 +766,7 @@ class BacktestRunner:
             leverage=cfg.leverage,
         )
 
+        # 3. Create instruments and bar types for all universe symbols
         instruments = {}
         bar_types = {}
         for sym in symbols:
@@ -866,30 +792,42 @@ class BacktestRunner:
                 f"{instrument.id.value}-{interval_nt}-LAST-EXTERNAL"
             )
 
-        # Strategy config: the portfolio tier carries `symbols` + `interval`.
+        # 4. Strategy config construction
         StrategyClass, ConfigClass = get_strategy_class(cfg.strategy_name)
         primary_iid = instruments[symbols[0]].id
-        strategy_kwargs = _base_strategy_kwargs(
-            cfg, primary_iid, window_start
-        )
-        # Portfolio tier: no single bar_type — each leg subscribes its own.
-        strategy_kwargs["symbols"] = tuple(symbols)
-        strategy_kwargs["interval"] = cfg.interval
+        strategy_kwargs = _base_strategy_kwargs(cfg, primary_iid, window_start)
+
+        if issubclass(ConfigClass, SBTBarStrategyConfig):
+            strategy_kwargs["bar_type"] = bar_types[symbols[0]]
+        elif issubclass(ConfigClass, SBTPortfolioStrategyConfig):
+            strategy_kwargs["symbols"] = tuple(symbols)
+            strategy_kwargs["interval"] = cfg.interval
+
         try:
             strategy_config = _build_strategy_config(ConfigClass, **strategy_kwargs)
         except (TypeError, ValueError) as e:
             return _fail(job_id, str(e))
 
-        for sym in symbols:
+        # 5. Feed bars & funding
+        for i, sym in enumerate(symbols):
             df = frames[sym]
             instrument = instruments[sym]
             bar_type = bar_types[sym]
-            print(
-                f"Loaded {len(df)} {cfg.interval} bars for {sym} "
-                f"(ref_price={float(df['close'].iloc[0])})."
-            )
+            if len(symbols) > 1:
+                print(
+                    f"Loaded {len(df)} {cfg.interval} bars for {sym} "
+                    f"(ref_price={float(df['close'].iloc[0])})."
+                )
+            else:
+                print(
+                    f"Loaded {len(df)} {cfg.interval} bars "
+                    f"(ref_price={float(df['close'].iloc[0])})."
+                )
+
             engine.add_data(load_bars(df, bar_type, instrument))
 
+            # Funding side-channel: injected frame > feather discovery > none.
+            funding_df = None
             if funding is not None:
                 funding_df = _slice_frame(funding, window_start, window_end)
             elif bars is None:
@@ -902,23 +840,25 @@ class BacktestRunner:
                 if funding_path:
                     print(f"Loading funding data for {sym} from {funding_path}...")
                     funding_df = pd.read_feather(funding_path)
-                else:
-                    funding_df = None
-            else:
-                funding_df = None
+            elif i == 0:
+                print("Explicit bars without funding frame; running without funding.")
+
             if funding_df is not None and len(funding_df):
                 funding_updates = load_funding_rates(funding_df, instrument.id)
                 if funding_updates:
                     engine.add_data(funding_updates)
-                    print(f"Loaded {len(funding_updates)} funding updates for {sym}.")
+                    print(f"Loaded {len(funding_updates)} funding rate updates.")
 
+        # 6. Register statistics, attach strategy, run & collect
         _register_stats(engine, cfg, instruments[symbols[0]])
         strategy = StrategyClass(config=strategy_config)
         self.strategy = strategy
         engine.add_strategy(strategy)
 
-        print("Running portfolio backtest...")
+        if len(symbols) > 1:
+            print("Running portfolio backtest...")
+        else:
+            print("Running backtest...")
         engine.run()
 
-        result = _collect_result(engine, strategy, job_id, t0)
-        return result
+        return _collect_result(engine, strategy, job_id, t0)

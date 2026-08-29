@@ -1184,3 +1184,34 @@ class TestInferInstrumentFromPath:
             "/home/user/data/bybit_BTCUSDT:USDT_1d_20230101_20260827.feather"
         )
         assert result == ("bybit", "BTC/USDT:USDT", "1d")
+
+
+class TestUnifiedBarExecution:
+    """Verify that single and multi-symbol runs execute seamlessly through the unified pipeline."""
+
+    def test_single_symbol_dataframe_execution(self, synthetic_bars, orb_config):
+        result = BacktestRunner(orb_config).run(bars=synthetic_bars)
+        assert result.status == JobStatus.DONE, result.error
+        assert result.num_trades > 0
+
+    def test_single_symbol_dict_execution(self, synthetic_bars, orb_config):
+        result = BacktestRunner(orb_config).run(
+            bars={orb_config.symbol: synthetic_bars}
+        )
+        assert result.status == JobStatus.DONE, result.error
+        assert result.num_trades > 0
+
+    def test_multi_symbol_single_dataframe_rejected(self, synthetic_bars):
+        symbols = ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+        cfg = RunConfig(
+            exchange="TESTEX",
+            symbol=symbols[0],
+            symbols=symbols,
+            strategy_name="factor_long_short",
+            start="2024-01-01",
+            end="2024-01-10",
+        )
+        result = BacktestRunner(cfg).run(bars=synthetic_bars)
+        assert result.status == JobStatus.FAILED
+        assert "Expected a dict of frames" in result.error
+
