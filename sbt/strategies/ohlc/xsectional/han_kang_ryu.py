@@ -47,19 +47,12 @@ class TSXSMomentum(SBTPortfolioStrategy):
             raise ValueError("lookback_days and holding_days must be positive")
         if not 0 < config.top_fraction < 0.5:
             raise ValueError(f"top_fraction must be in (0, 0.5), got {config.top_fraction}")
-        # Per-leg daily (ts_ns, close).
-        self._series: dict[InstrumentId, list[tuple[int, float]]] = {
-            iid: [] for iid in self._legs
-        }
         self._next_rebal_ns: int | None = None
 
     def on_instrument_bar(self, instrument_id: InstrumentId, bar: Bar) -> None:
-        self._series[instrument_id].append(
-            (bar.ts_event, float(bar.close.as_double()))
-        )
         if instrument_id != self._primary_iid:
             return
-        day_ns = int(self._ts(bar).normalize().value)
+        day_ns = int(pd.Timestamp(bar.ts_event, unit="ns", tz="UTC").normalize().value)
         if self._next_rebal_ns is None:
             self._next_rebal_ns = day_ns
         if not self.trading_active or day_ns < self._next_rebal_ns:
@@ -67,64 +60,29 @@ class TSXSMomentum(SBTPortfolioStrategy):
         self._next_rebal_ns = day_ns + self.config.holding_days * _DAY_NS
         self._rebalance(day_ns)
 
-    @staticmethod
-    def _ts(bar: Bar) -> pd.Timestamp:
-        return pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
-
-    @staticmethod
-    def _close_at_or_before(pairs: list[tuple[int, float]], ns: int) -> float | None:
-        close: float | None = None
-        for t, c in pairs:
-            if t > ns:
-                break
-            close = c
-        return close
-
-    @classmethod
-    def _return(
-        cls, pairs: list[tuple[int, float]], start_ns: int, end_ns: int
-    ) -> float | None:
-        c_end = cls._close_at_or_before(pairs, end_ns)
-        c_start = cls._close_at_or_before(pairs, start_ns)
-        if c_end is None or c_start is None or c_start <= 0:
-            return None
-        return c_end / c_start - 1.0
-
     def _rebalance(self, day_ns: int) -> None:
         start_ns = day_ns - self.config.lookback_days * _DAY_NS
+        rets = self.history.formation_returns(day_ns, start_ns)
         if self.config.mode == "ts":
-            self._rebalance_ts(day_ns, start_ns)
+            self._rebalance_ts(rets)
         else:
-            self._rebalance_cs(day_ns, start_ns)
-        self.prune_series(
-            self._series,
-            day_ns - (self.config.lookback_days + 1) * _DAY_NS,
-        )
+            self._rebalance_cs(rets)
+        self.prune_history_days(self.config.lookback_days + 1)
 
-    def _rebalance_ts(self, day_ns: int, start_ns: int) -> None:
-        rets = [
-            self._return(self._series[iid], start_ns, day_ns)
-            for iid in self._legs
-        ]
-        rets = [r for r in rets if r is not None]
+    def _rebalance_ts(self, rets: dict[InstrumentId, float]) -> None:
         if not rets:
             return
-        long_market = sum(rets) / len(rets) > 0
+        long_market = sum(rets.values()) / len(rets) > 0
         targets: dict[InstrumentId, OrderSide | None] = {
             iid: OrderSide.BUY if long_market else None
             for iid in self._legs
         }
         self.apply_targets(targets)
 
-    def _rebalance_cs(self, day_ns: int, start_ns: int) -> None:
-        signals: dict[InstrumentId, float] = {}
-        for iid in self._legs:
-            r = self._return(self._series[iid], start_ns, day_ns)
-            if r is not None:
-                signals[iid] = r
-        if len(signals) < 2:
+    def _rebalance_cs(self, rets: dict[InstrumentId, float]) -> None:
+        if len(rets) < 2:
             return
-        ordered = sorted(signals, key=lambda iid: signals[iid])
+        ordered = sorted(rets, key=lambda iid: rets[iid])
         n = len(ordered)
         n_sel = max(1, round(n * self.config.top_fraction))
         longset: set[InstrumentId] = set(ordered[max(0, n - n_sel):])

@@ -43,34 +43,18 @@ class ZarembaReversal(SBTPortfolioStrategy):
                 "liquidity_top_quantile must be in (0, 1] or None, "
                 f"got {config.liquidity_top_quantile}"
             )
-        # Per-leg (ts_ns, close, volume).
-        self._series: dict[InstrumentId, list[tuple[int, float, float]]] = {
-            iid: [] for iid in self._legs
-        }
         self._last_day: str | None = None
 
     def on_instrument_bar(self, instrument_id: InstrumentId, bar: Bar) -> None:
-        self._series[instrument_id].append(
-            (
-                bar.ts_event,
-                float(bar.close.as_double()),
-                float(bar.volume.as_double() if hasattr(bar, "volume") else 0.0),
-            )
-        )
-
         # Rebalance once per UTC day, keyed on the primary leg.
         if instrument_id != self._primary_iid:
             return
-        dt = self._ts(bar)
+        dt = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
         day = dt.strftime("%Y-%m-%d")
         if day == self._last_day or not self.trading_active:
             return
         self._last_day = day
         self._rebalance(dt)
-
-    @staticmethod
-    def _ts(bar: Bar) -> pd.Timestamp:
-        return pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
 
     def _buckets(self, ts: pd.Timestamp) -> tuple[int, int]:
         # Bucket edges as integer ns: yesterday's close and the day before it.
@@ -78,21 +62,6 @@ class ZarembaReversal(SBTPortfolioStrategy):
         end_ns = today - 1  # last bar before today's midnight
         start_ns = end_ns - 86_400_000_000_000  # one UTC day earlier
         return end_ns, start_ns
-
-    @staticmethod
-    def _close_at_or_before(pairs: list[tuple[int, float, float]], ns: int) -> float | None:
-        close: float | None = None
-        for t, c, _v in pairs:
-            if t > ns:
-                break
-            close = c
-        return close
-
-    def _dollar_volume(self, pairs: list[tuple[int, float, float]], end_ns: int, days: int) -> float:
-        start = end_ns - days * 86_400_000_000_000
-        return sum(
-            v * c for t, c, v in pairs if start < t <= end_ns
-        )
 
     def _rebalance(self, ts: pd.Timestamp) -> None:
         end_ns, start_ns = self._buckets(ts)
@@ -102,12 +71,8 @@ class ZarembaReversal(SBTPortfolioStrategy):
         universe: set[InstrumentId] = set(self._legs)
         top_q = self.config.liquidity_top_quantile
         if top_q is not None:
-            dv = {
-                iid: self._dollar_volume(
-                    pairs, end_ns, self.config.liquidity_window_days
-                )
-                for iid, pairs in self._series.items()
-            }
+            liq_lo = end_ns - self.config.liquidity_window_days * 86_400_000_000_000
+            dv = self.history.dollar_volumes(liq_lo, end_ns)
             dv = {iid: d for iid, d in dv.items() if d > 0}
             if dv:
                 ranked = sorted(dv, key=lambda iid: dv[iid], reverse=True)
@@ -117,9 +82,8 @@ class ZarembaReversal(SBTPortfolioStrategy):
         # LRET = lagged 1-day log-return over the flip side of the day.
         lret: dict[InstrumentId, float] = {}
         for iid in universe:
-            pairs = self._series[iid]
-            c_end = self._close_at_or_before(pairs, end_ns)
-            c_start = self._close_at_or_before(pairs, start_ns)
+            c_end = self.history.close_at_or_before(iid, end_ns)
+            c_start = self.history.close_at_or_before(iid, start_ns)
             if c_end is None or c_start is None or c_start <= 0 or c_end <= 0:
                 continue
             lret[iid] = log(c_end / c_start)
@@ -146,7 +110,4 @@ class ZarembaReversal(SBTPortfolioStrategy):
             for iid in self._legs
         }
         self.apply_targets(targets)
-        self.prune_series(
-            self._series,
-            int(ts.value) - (self.config.liquidity_window_days + 2) * 86_400_000_000_000,
-        )
+        self.prune_history_days(self.config.liquidity_window_days + 2)

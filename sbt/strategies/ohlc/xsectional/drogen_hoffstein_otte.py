@@ -41,39 +41,18 @@ class MomentumWinners(SBTPortfolioStrategy):
             raise ValueError("formation_days and continuation_days must be positive")
         if not 0 < config.top_fraction < 0.5:
             raise ValueError(f"top_fraction must be in (0, 0.5), got {config.top_fraction}")
-        # Per-leg (ts_ns, close, volume).
-        self._series: dict[InstrumentId, list[tuple[int, float, float]]] = {
-            iid: [] for iid in self._legs
-        }
         self._next_rebal_ns: int | None = None
 
     def on_instrument_bar(self, instrument_id: InstrumentId, bar: Bar) -> None:
-        self._series[instrument_id].append(
-            (
-                bar.ts_event,
-                float(bar.close.as_double()),
-                float(bar.volume.as_double() if hasattr(bar, "volume") else 0.0),
-            )
-        )
         if instrument_id != self._primary_iid:
             return
-        day_ns = int(self._ts(bar).normalize().value)
+        day_ns = int(pd.Timestamp(bar.ts_event, unit="ns", tz="UTC").normalize().value)
         if self._next_rebal_ns is None:
             self._next_rebal_ns = day_ns
         if not self.trading_active or day_ns < self._next_rebal_ns:
             return
         self._next_rebal_ns = day_ns + self.config.continuation_days * _DAY_NS
         self._rebalance(day_ns)
-
-    @staticmethod
-    def _ts(bar: Bar) -> pd.Timestamp:
-        return pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
-
-    @staticmethod
-    def _window(
-        pairs: list[tuple[int, float, float]], lo: int, hi: int
-    ) -> list[tuple[int, float, float]]:
-        return [(t, c, v) for t, c, v in pairs if lo < t <= hi]
 
     def _rebalance(self, day_ns: int) -> None:
         form_start = day_ns - self.config.formation_days * _DAY_NS
@@ -82,8 +61,8 @@ class MomentumWinners(SBTPortfolioStrategy):
         mom: dict[InstrumentId, float] = {}
         liquid: set[InstrumentId] = set()
 
-        for iid, pairs in self._series.items():
-            form = self._window(pairs, form_start, day_ns)
+        for iid in self._legs:
+            form = self.history.window(iid, form_start, day_ns)
             if not form:
                 continue
             first, last = form[0][1], form[-1][1]
@@ -91,9 +70,11 @@ class MomentumWinners(SBTPortfolioStrategy):
                 continue
             mom[iid] = last / first - 1.0
 
-            liq = self._window(pairs, liq_start, day_ns)
-            dollar = sum(v * c for _t, c, v in liq)
-            avg = dollar / len(liq) if liq else 0.0
+            liq = self.history.window(iid, liq_start, day_ns)
+            if not liq:
+                continue
+            dollar = sum(c * v for _t, c, _h, v in liq)
+            avg = dollar / len(liq)
             if avg >= self.config.liquidity_min_dollar:
                 liquid.add(iid)
 
@@ -116,7 +97,4 @@ class MomentumWinners(SBTPortfolioStrategy):
             for iid in self._legs
         }
         self.apply_targets(targets)
-        self.prune_series(
-            self._series,
-            day_ns - (max(self.config.formation_days, self.config.liquidity_days) + 1) * _DAY_NS,
-        )
+        self.prune_history_days(max(self.config.formation_days, self.config.liquidity_days) + 1)

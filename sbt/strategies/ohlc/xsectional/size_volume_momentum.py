@@ -53,87 +53,44 @@ class SizeVolumeMomentum(SBTPortfolioStrategy):
             raise ValueError(
                 f"liquid_fraction must be in (0, 1], got {config.liquid_fraction}"
             )
-        # Per-leg (ts_ns, close, high, volume).
-        self._series: dict[InstrumentId, list[tuple[int, float, float, float]]] = {
-            iid: [] for iid in self._legs
-        }
         self._last_week: str | None = None
 
     def on_instrument_bar(self, instrument_id: InstrumentId, bar: Bar) -> None:
-        self._series[instrument_id].append(
-            (
-                bar.ts_event,
-                float(bar.close.as_double()),
-                float(bar.high.as_double()),
-                float(bar.volume.as_double() if hasattr(bar, "volume") else 0.0),
-            )
-        )
-
         # Rebalance once per ISO week, keyed on the primary leg.
         if instrument_id != self._primary_iid:
             return
-        dt = self._ts(bar)
+        dt = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
         week = dt.strftime("%G-%V")
         if week == self._last_week or not self.trading_active:
             return
         self._last_week = week
         self._rebalance(dt)
 
-    @staticmethod
-    def _ts(bar: Bar) -> pd.Timestamp:
-        return pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
-
     def _week_end_ns(self, ts: pd.Timestamp) -> int:
         cur = ts.to_period("W").to_timestamp().tz_localize("UTC")
         return int((cur - pd.Timedelta(days=1)).normalize().value)
 
-    @staticmethod
-    def _close_at_or_before(pairs: list[tuple[int, float, float, float]], ns: int) -> float | None:
-        close: float | None = None
-        for t, c, _h, _v in pairs:
-            if t > ns:
-                break
-            close = c
-        return close
-
-    @staticmethod
-    def _max_high_in(pairs: list[tuple[int, float, float, float]], lo: int, hi: int) -> float | None:
-        best: float | None = None
-        for t, _c, h, _v in pairs:
-            if t <= lo:
-                continue
-            if t > hi:
-                break
-            best = h if best is None else max(best, h)
-        return best
-
-    @staticmethod
-    def _dollar_volume(pairs: list[tuple[int, float, float, float]], lo: int, hi: int) -> float:
-        return sum(
-            v * c for t, c, _h, v in pairs if lo < t <= hi
-        )
-
     def _rebalance(self, ts: pd.Timestamp) -> None:
         end_ns = self._week_end_ns(ts)
+        liq_lo = end_ns - self.config.liquid_window_weeks * _WEEK_NS
 
         # Per-leg signal and liquidity.
         signal: dict[InstrumentId, float] = {}
         liquidity: dict[InstrumentId, float] = {}
-        for iid, pairs in self._series.items():
-            c_end = self._close_at_or_before(pairs, end_ns)
+        for iid in self._legs:
+            c_end = self.history.close_at_or_before(iid, end_ns)
             if c_end is None or c_end <= 0:
                 continue
-            liq = self._dollar_volume(pairs, end_ns - self.config.liquid_window_weeks * _WEEK_NS, end_ns)
-            liquidity[iid] = liq
+            liquidity[iid] = self.history.dollar_volume(iid, liq_lo, end_ns)
             if self.config.signal == "high_momentum":
-                H = self._max_high_in(
-                    pairs, end_ns - self.config.hk_weeks * _WEEK_NS, end_ns
+                H = self.history.max_high(
+                    iid, end_ns - self.config.hk_weeks * _WEEK_NS, end_ns
                 )
                 if H is None or H <= 0:
                     continue
                 signal[iid] = log(c_end) - log(H)
             else:  # momentum: trailing 1-week log-return
-                c_start = self._close_at_or_before(pairs, end_ns - _WEEK_NS)
+                c_start = self.history.close_at_or_before(iid, end_ns - _WEEK_NS)
                 if c_start is None or c_start <= 0:
                     continue
                 signal[iid] = log(c_end / c_start)
@@ -188,7 +145,4 @@ class SizeVolumeMomentum(SBTPortfolioStrategy):
                     else None
                 )
         self.apply_targets(targets)
-        self.prune_series(
-            self._series,
-            int(ts.value) - (max(self.config.liquid_window_weeks, self.config.hk_weeks) + 1) * _WEEK_NS,
-        )
+        self.prune_history_weeks(max(self.config.liquid_window_weeks, self.config.hk_weeks) + 1)

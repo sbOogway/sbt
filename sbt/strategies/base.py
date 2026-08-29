@@ -262,6 +262,107 @@ class _LegFundingAggregate:
         return sum(leg.funding.total_paid for leg in self._legs.values())
 
 
+class UniverseHistory:
+    """Bounded rolling history buffer for cross-sectional universe bar data.
+
+    Automatically populated by :meth:`SBTPortfolioStrategy.on_bar`; strategies
+    query lookback data through typed methods without manual bookkeeping.
+    Call :meth:`prune` after each rebalance to bound memory.
+
+    Each leg stores ``(ts_ns, close, high, volume)`` 4-tuples — a superset
+    of every cross-sectional factor's input needs.
+    """
+
+    __slots__ = ("_data",)
+
+    def __init__(self, instrument_ids) -> None:
+        self._data: dict[InstrumentId, list[tuple[int, float, float, float]]] = {
+            iid: [] for iid in instrument_ids
+        }
+
+    # -- recording --------------------------------------------------------
+
+    def record(self, iid: InstrumentId, bar: Bar) -> None:
+        """Append one bar snapshot.  Called automatically by the base class."""
+        self._data[iid].append((
+            bar.ts_event,
+            float(bar.close.as_double()),
+            float(bar.high.as_double()),
+            float(bar.volume.as_double()) if hasattr(bar, "volume") else 0.0,
+        ))
+
+    # -- single-leg queries -----------------------------------------------
+
+    def close_at_or_before(self, iid: InstrumentId, ns: int) -> float | None:
+        """Close of the last bar at or before *ns* (pairs sorted ascending)."""
+        close: float | None = None
+        for t, c, _h, _v in self._data.get(iid, ()):
+            if t > ns:
+                break
+            close = c
+        return close
+
+    def max_high(self, iid: InstrumentId, lo_ns: int, hi_ns: int) -> float | None:
+        """Highest intraday high for bars in ``(lo_ns, hi_ns]``."""
+        best: float | None = None
+        for t, _c, h, _v in self._data.get(iid, ()):
+            if t <= lo_ns:
+                continue
+            if t > hi_ns:
+                break
+            best = h if best is None else max(best, h)
+        return best
+
+    def dollar_volume(self, iid: InstrumentId, lo_ns: int, hi_ns: int) -> float:
+        """Sum of close × volume for bars in ``(lo_ns, hi_ns]``."""
+        return sum(
+            c * v for t, c, _h, v in self._data.get(iid, ())
+            if lo_ns < t <= hi_ns
+        )
+
+    def window(
+        self, iid: InstrumentId, lo_ns: int, hi_ns: int,
+    ) -> list[tuple[int, float, float, float]]:
+        """Raw ``(ts_ns, close, high, volume)`` tuples in ``(lo_ns, hi_ns]``."""
+        return [
+            row for row in self._data.get(iid, ())
+            if lo_ns < row[0] <= hi_ns
+        ]
+
+    # -- universe-wide queries -------------------------------------------
+
+    def formation_returns(
+        self, end_ns: int, start_ns: int,
+    ) -> dict[InstrumentId, float]:
+        """Close-to-close return per leg: ``close(end) / close(start) − 1``."""
+        rets: dict[InstrumentId, float] = {}
+        for iid in self._data:
+            c_end = self.close_at_or_before(iid, end_ns)
+            c_start = self.close_at_or_before(iid, start_ns)
+            if c_end is not None and c_start is not None and c_start > 0:
+                rets[iid] = c_end / c_start - 1.0
+        return rets
+
+    def dollar_volumes(
+        self, lo_ns: int, hi_ns: int,
+    ) -> dict[InstrumentId, float]:
+        """Dollar volume per leg in ``(lo_ns, hi_ns]``."""
+        return {iid: self.dollar_volume(iid, lo_ns, hi_ns) for iid in self._data}
+
+    # -- maintenance -------------------------------------------------------
+
+    def prune(self, before_ns: int) -> None:
+        """Drop bars with ``ts_ns <= before_ns`` from every leg."""
+        for pairs in self._data.values():
+            while pairs and pairs[0][0] <= before_ns:
+                pairs.pop(0)
+
+    @property
+    def instrument_ids(self):
+        """The set of tracked instrument IDs."""
+        return self._data.keys()
+
+
 class SBTPortfolioStrategy(Strategy):
     """Multi-instrument (portfolio) base: per-leg positions on a shared account.
 
@@ -269,6 +370,10 @@ class SBTPortfolioStrategy(Strategy):
     the ~70 single-instrument strategies). This subclass instead manages a
     dict of per-instrument :class:`LegState` — side, quantity, latest price and
     a personal ``FundingTracker`` per leg.
+
+    A :class:`UniverseHistory` buffer is populated automatically on every bar;
+    cross-sectional strategies query it via ``self.history`` instead of
+    managing their own ``_series`` dicts.
 
     The runner injects ``instrument_id`` = the primary (first) symbol's
     instrument and builds one perpetual + bar stream per ``config.symbols``
@@ -289,6 +394,7 @@ class SBTPortfolioStrategy(Strategy):
         self.plugins = PluginHost.from_config(config)
         self._legs: dict[InstrumentId, LegState] = {}
         self._init_legs()
+        self.history = UniverseHistory(self._legs.keys())
         self._active_from_ns: int | None = _parse_active_from_ns(config.active_from)
         self._current_ts_ns: int = 0
         # Backward-compatible attributes: position_side = primary leg's side,
@@ -346,6 +452,7 @@ class SBTPortfolioStrategy(Strategy):
         iid = bar.bar_type.instrument_id
         leg = self._leg(iid)
         leg.price = bar.close.as_double()
+        self.history.record(iid, bar)
         self.plugins.on_bar(self, bar)
         self.on_instrument_bar(iid, bar)
 
@@ -531,3 +638,11 @@ class SBTPortfolioStrategy(Strategy):
         for iid, pairs in series.items():
             while pairs and pairs[0][0] <= before_ns:
                 pairs.pop(0)
+
+    def prune_history_weeks(self, n_weeks: int) -> None:
+        """Prune :attr:`history` bars older than *n_weeks* before now."""
+        self.history.prune(self._current_ts_ns - n_weeks * 7 * 86_400_000_000_000)
+
+    def prune_history_days(self, n_days: int) -> None:
+        """Prune :attr:`history` bars older than *n_days* before now."""
+        self.history.prune(self._current_ts_ns - n_days * 86_400_000_000_000)

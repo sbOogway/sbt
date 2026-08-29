@@ -25,67 +25,37 @@ class XSectionalMomentumConfig(SBTPortfolioStrategyConfig, kw_only=True, frozen=
 class XSectionalMomentum(SBTPortfolioStrategy):
     def __init__(self, config: XSectionalMomentumConfig) -> None:
         super().__init__(config)
-        # Per-leg (ts_ns, close) pairs, one append per forwarded bar.
-        self._series: dict[InstrumentId, list[tuple[int, float]]] = {
-            iid: [] for iid in self._legs
-        }
         self._last_month: str | None = None
 
     def on_instrument_bar(self, instrument_id: InstrumentId, bar: Bar) -> None:
-        self._series[instrument_id].append(
-            (bar.ts_event, float(bar.close.as_double()))
-        )
-
         # Rebalance once per calendar month, keyed on the primary leg so a
         # basket-wide decision runs exactly once per month boundary.
         if instrument_id != self._primary_iid:
             return
-        dt = self._ts(bar)
+        dt = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
         month = dt.strftime("%Y-%m")
         if month == self._last_month or not self.trading_active:
             return
         self._last_month = month
         self._rebalance(dt)
 
-    @staticmethod
-    def _ts(bar: Bar) -> pd.Timestamp:
-        return pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
-
-    def _formation_bounds(self, ts: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp]:
+    def _formation_bounds(self, ts: pd.Timestamp) -> tuple[int, int]:
         cur_month_start = ts.to_period("M").to_timestamp().tz_localize("UTC")
-        end_bucket = (cur_month_start - pd.Timedelta(days=1)).normalize()
-        start_bucket = (
-            cur_month_start
-            - pd.DateOffset(months=self.config.formation_months)
-            - pd.Timedelta(days=1)
-        ).normalize()
-        return end_bucket, start_bucket
-
-    @staticmethod
-    def _close_at_or_before(pairs: list[tuple[int, float]], ns: int) -> float | None:
-        """Close of the last bar at or before *ns* (pairs sorted ascending)."""
-        val: float | None = None
-        for t, c in pairs:
-            if t > ns:
-                break
-            val = c
-        return val
-
-    def _momentum_returns(self, ts: pd.Timestamp) -> dict[InstrumentId, float]:
-        end_bucket, start_bucket = self._formation_bounds(ts)
-        end_ns = int(end_bucket.value)
-        start_ns = int(start_bucket.value)
-        rets: dict[InstrumentId, float] = {}
-        for iid, pairs in self._series.items():
-            c_end = self._close_at_or_before(pairs, end_ns)
-            c_start = self._close_at_or_before(pairs, start_ns)
-            if c_end is None or c_start is None or c_start == 0:
-                continue
-            rets[iid] = c_end / c_start - 1.0
-        return rets
+        end_ns = int((cur_month_start - pd.Timedelta(days=1)).normalize().value)
+        start_ns = int(
+            (
+                cur_month_start
+                - pd.DateOffset(months=self.config.formation_months)
+                - pd.Timedelta(days=1)
+            )
+            .normalize()
+            .value
+        )
+        return end_ns, start_ns
 
     def _rebalance(self, ts: pd.Timestamp) -> None:
-        rets = self._momentum_returns(ts)
+        end_ns, start_ns = self._formation_bounds(ts)
+        rets = self.history.formation_returns(end_ns, start_ns)
         if not rets:
             return
         ordered = sorted(rets, key=lambda iid: rets[iid])
@@ -101,7 +71,4 @@ class XSectionalMomentum(SBTPortfolioStrategy):
             for iid in self._legs
         }
         self.apply_targets(targets)
-        self.prune_series(
-            self._series,
-            int(ts.value) - (self.config.formation_months + 1) * 30 * 86_400_000_000_000,
-        )
+        self.prune_history_weeks(4 * (self.config.formation_months + 1))

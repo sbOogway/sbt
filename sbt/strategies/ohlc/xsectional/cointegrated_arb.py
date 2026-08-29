@@ -56,38 +56,28 @@ class CointegratedArb(SBTPortfolioStrategy):
         # Stable iteration order matching config.symbols (or just the primary
         # leg when the basket is empty); mirrors self._legs in the base class.
         self._order: list[InstrumentId] = list(self._legs)
-        # Per-leg (ts_ns, close)
-        self._series: dict[InstrumentId, list[tuple[int, float]]] = {
-            iid: [] for iid in self._order
-        }
         self._state: int = _FLAT
         self._weights: np.ndarray | None = None
         self._last_fit_ns: int | None = None
         self._entry_price: dict[InstrumentId, float] = {}
 
     def on_instrument_bar(self, instrument_id: InstrumentId, bar: Bar) -> None:
-        self._series[instrument_id].append(
-            (bar.ts_event, float(bar.close.as_double()))
-        )
         if instrument_id != self._primary_iid:
             return
         day_ns = int(pd.Timestamp(bar.ts_event, unit="ns", tz="UTC").normalize().value)
         if not self.trading_active:
             return
         self._step(day_ns)
-        self.prune_series(
-            self._series,
-            day_ns - (self.config.estimation_window + 1) * _DAY_NS,
-        )
+        self.prune_history_days(self.config.estimation_window + 1)
 
     # ------------------------------------------------------------------ #
 
     def _spread_frame(self, day_ns: int) -> pd.DataFrame | None:
         lo = day_ns - self.config.estimation_window * _DAY_NS
         rows: list[dict] = []
-        for iid, pairs in self._series.items():
-            for t, c in pairs:
-                if lo < t <= day_ns and c > 0:
+        for iid in self._order:
+            for t, c, _h, _v in self.history.window(iid, lo, day_ns):
+                if c > 0:
                     rows.append({"t": t, "iid": iid, "lp": float(np.log(c))})
         if not rows:
             return None
