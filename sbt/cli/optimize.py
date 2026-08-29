@@ -36,7 +36,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
 def run(args: argparse.Namespace) -> None:
     """Run an Optuna optimization study from parsed CLI args."""
-    from ..core.config import RunConfig, cli_overrides_from_args
+    from ..core.config import cli_overrides_from_args
     from ..optimize.study import run_optuna_study
 
     cli_overrides = cli_overrides_from_args(args)
@@ -44,21 +44,12 @@ def run(args: argparse.Namespace) -> None:
     # --- Walk-forward mode ---
     if args.walk_forward:
         try:
-            cfg = RunConfig.from_cli_args(args)
+            from ..optimize.walk_forward import run_walk_forward_from_args
+
+            run_walk_forward_from_args(args)
         except ValueError as e:
             print(f"ERROR: {e}", file=sys.stderr)
             sys.exit(1)
-        from ..optimize.walk_forward import run_walk_forward
-
-        wf_result = run_walk_forward(
-            cfg,
-            is_months=args.wf_is_months,
-            oos_months=args.wf_oos_months,
-            step_months=args.wf_step_months,
-            trials=args.wf_trials,
-            param_space=args.param,
-        )
-        print(f"\n{wf_result.summary_line()}")
         return
 
     # --- Standard Optuna optimization ---

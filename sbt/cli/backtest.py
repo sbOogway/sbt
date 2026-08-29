@@ -16,17 +16,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p.set_defaults(func=run)
 
 
-def run(args: argparse.Namespace) -> None:
-    """Execute a backtest from parsed CLI args."""
-    from ..core.config import RunConfig
-    from ..core.feather import infer_instrument_from_path
-    from ..core.runner import BacktestRunner
-    from ..report import print_report
+def _check_feather(args: argparse.Namespace) -> None:
+    """Translate an unparseable --feather path into a CLI-friendly exit.
 
-    # Pre-flight check: a known --feather path is required for inference
-    # to make the symbol/exchange/interval triplet optional. Catch the
-    # inference failure here (with a CLI-friendly message + exit code)
-    # so from_cli_args can stay pure for unit tests.
+    Called before either the walk-forward or the standard path so the
+    user gets a consistent error message regardless of which sub-flow
+    the inference failure would have hit.
+    """
     if args.feather and infer_instrument_from_path(args.feather) is None:
         print(
             f"ERROR: Could not infer exchange/symbol/interval from "
@@ -34,28 +30,34 @@ def run(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
+
+def run(args: argparse.Namespace) -> None:
+    """Execute a backtest from parsed CLI args."""
+    from ..core.config import RunConfig
+    from ..core.runner import BacktestRunner
+    from ..report import print_report
+
+    # --- Walk-forward mode ---
+    # The walk-forward helper builds its own RunConfig, so we don't
+    # build one here — but the --feather pre-flight check is shared.
+    if args.walk_forward:
+        _check_feather(args)
+        try:
+            from ..optimize.walk_forward import run_walk_forward_from_args
+
+            run_walk_forward_from_args(args)
+        except ValueError as e:
+            print(f"ERROR: {e}")
+            sys.exit(1)
+        return
+
+    # --- Standard backtest mode ---
+    _check_feather(args)
     try:
         cfg = RunConfig.from_cli_args(args)
     except ValueError as e:
         print(f"ERROR: {e}")
         sys.exit(1)
-
-    # --- Walk-forward mode ---
-    if args.walk_forward:
-        from ..optimize.walk_forward import run_walk_forward
-
-        wf_result = run_walk_forward(
-            cfg,
-            is_months=args.wf_is_months,
-            oos_months=args.wf_oos_months,
-            step_months=args.wf_step_months,
-            trials=args.wf_trials,
-            param_space=args.param,
-        )
-        print(f"\n{wf_result.summary_line()}")
-        return
-
-    # --- Standard backtest mode ---
     runner = BacktestRunner(cfg, db_path="sbt.db")
     result = runner.run()
 

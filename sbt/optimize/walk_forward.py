@@ -380,3 +380,37 @@ def run_walk_forward(
     print(f"{'='*60}", flush=True)
 
     return result
+
+
+# ------------------------------------------------------------------
+# CLI glue
+# ------------------------------------------------------------------
+
+
+def run_walk_forward_from_args(args) -> "WalkForwardResult":
+    """Build a RunConfig from *args* and run walk-forward validation.
+
+    The single shared entry point for the ``sbt backtest --walk-forward``
+    and ``sbt optimize --walk-forward`` subcommands. Expects *args* to
+    carry the four ``--wf-*`` knobs (``wf_is_months``, ``wf_oos_months``,
+    ``wf_step_months``, ``wf_trials``) and a ``param`` list — the same
+    shape produced by :func:`sbt.cli.args.add_backtest_args`.
+
+    Raises ``ValueError`` from the underlying :meth:`RunConfig.from_cli_args`
+    on missing required args (CLI modules translate to a user-facing
+    error and ``sys.exit(1)``). Prints the one-line ``summary_line()``
+    after the multi-line block already printed by :func:`run_walk_forward`.
+    """
+    from ..core.config import RunConfig
+
+    cfg = RunConfig.from_cli_args(args)
+    result = run_walk_forward(
+        cfg,
+        is_months=args.wf_is_months,
+        oos_months=args.wf_oos_months,
+        step_months=args.wf_step_months,
+        trials=args.wf_trials,
+        param_space=args.param,
+    )
+    print(f"\n{result.summary_line()}")
+    return result
